@@ -1,0 +1,6 @@
+include mcp.json
+include README.md
+include CHANGELOG.md
+include API_REFERENCE.md
+include LICENSE
+recursive-include src/strix_sandbox *.py

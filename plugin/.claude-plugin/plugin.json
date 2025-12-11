@@ -1,0 +1,49 @@
+{
+  "name": "strix-security",
+  "version": "1.0.0",
+  "description": "AI-powered security testing framework with 8 specialized skills for vulnerability assessment",
+  "author": "Strix Team",
+  "repository": "https://github.com/usestrix/strix",
+  "license": "MIT",
+  "skills": [
+    "security-recon",
+    "injection-testing",
+    "auth-testing",
+    "logic-testing",
+    "platform-testing",
+    "verification-methods",
+    "security-reporting",
+    "web-security-testing"
+  ],
+  "commands": [
+    "security-test",
+    "security-scan"
+  ],
+  "agents": [
+    "penetration-tester"
+  ],
+  "requirements": {
+    "mcp": ["strix-sandbox"],
+    "python": ">=3.11"
+  },
+  "mcp_config": {
+    "strix-sandbox": {
+      "description": "Sandboxed security testing tools (browser, proxy, terminal)",
+      "install": {
+        "pypi": "pip install strix-sandbox",
+        "docker": "docker pull strix/sandbox:latest"
+      },
+      "config": {
+        "command": "strix-sandbox",
+        "transport": "stdio"
+      }
+    }
+  },
+  "keywords": [
+    "security",
+    "penetration-testing",
+    "vulnerability-assessment",
+    "web-security",
+    "api-testing"
+  ]
+}

@@ -1,0 +1,109 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/specification/main/schema/mcp.schema.json",
+  "name": "strix-sandbox",
+  "version": "0.1.0",
+  "description": "Sandboxed security testing tools for Claude Code via MCP. Provides browser automation, HTTP proxy, terminal execution, Python execution, and findings tracking.",
+  "protocol_version": "1.0.0",
+  "author": {
+    "name": "Strix",
+    "email": "security@strix.dev"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/strix-security/strix-sandbox-mcp"
+  },
+  "tools_count": 50,
+  "categories": {
+    "sandbox": {
+      "description": "Sandbox environment management",
+      "tools": ["sandbox_create", "sandbox_destroy", "sandbox_status"]
+    },
+    "browser": {
+      "description": "Playwright browser automation",
+      "tools": [
+        "browser_launch",
+        "browser_goto",
+        "browser_click",
+        "browser_type",
+        "browser_scroll",
+        "browser_screenshot",
+        "browser_execute_js",
+        "browser_new_tab",
+        "browser_switch_tab",
+        "browser_close_tab",
+        "browser_get_source",
+        "browser_close"
+      ]
+    },
+    "terminal": {
+      "description": "Terminal/shell command execution",
+      "tools": ["terminal_execute", "terminal_send_input"]
+    },
+    "python": {
+      "description": "Python/IPython code execution",
+      "tools": ["python_execute", "python_session"]
+    },
+    "proxy": {
+      "description": "HTTP proxy and traffic interception",
+      "tools": [
+        "proxy_start",
+        "proxy_list_requests",
+        "proxy_view_request",
+        "proxy_send_request",
+        "proxy_repeat_request",
+        "proxy_set_scope",
+        "proxy_get_sitemap"
+      ]
+    },
+    "findings": {
+      "description": "Security findings tracking and reporting",
+      "tools": [
+        "finding_create",
+        "finding_list",
+        "finding_update",
+        "finding_delete",
+        "finding_export"
+      ]
+    },
+    "files": {
+      "description": "File operations in sandbox workspace",
+      "tools": [
+        "file_read",
+        "file_write",
+        "file_search",
+        "file_str_replace",
+        "file_list",
+        "file_view",
+        "file_insert"
+      ]
+    },
+    "utility": {
+      "description": "Utility and helper tools",
+      "tools": ["think"]
+    },
+    "prompts": {
+      "description": "Prompt module management",
+      "tools": ["prompt_modules_list", "prompt_module_view"]
+    },
+    "agents": {
+      "description": "Multi-agent coordination",
+      "tools": [
+        "agent_create",
+        "agent_send_message",
+        "agent_finish",
+        "agent_wait_for_message",
+        "agent_view_graph",
+        "agent_stop",
+        "agent_status",
+        "agent_clear_graph",
+        "scan_finish"
+      ]
+    }
+  },
+  "requirements": {
+    "python": ">=3.11",
+    "docker": true
+  },
+  "entry_point": "strix_sandbox.server:main"
+}

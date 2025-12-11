@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  strix-sandbox:
+    build:
+      context: ./container
+      dockerfile: Dockerfile
+    image: strix/sandbox-mcp:latest
+    container_name: strix-sandbox
+    ports:
+      - "9999:9999"   # Tool execution server
+      - "8080:8080"   # mitmproxy
+    volumes:
+      - strix-data:/data
+      - ./workspace:/workspace
+    environment:
+      - TOOL_SERVER_TOKEN=${TOOL_SERVER_TOKEN:-strix-dev-token}
+      - WITH_PROXY=true
+    cap_add:
+      - SYS_ADMIN  # Required for Playwright
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - strix-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9999/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  strix-data:
+    driver: local
+
+networks:
+  strix-network:
+    driver: bridge
