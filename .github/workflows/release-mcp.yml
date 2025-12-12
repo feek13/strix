@@ -82,12 +82,12 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: mcp-server
+          context: mcp-server/container
           file: mcp-server/container/Dockerfile
           push: true
           tags: |
-            strix/sandbox:latest
-            strix/sandbox:${{ steps.version.outputs.VERSION }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/strix-sandbox:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/strix-sandbox:${{ steps.version.outputs.VERSION }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
