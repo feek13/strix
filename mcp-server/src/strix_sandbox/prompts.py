@@ -6,7 +6,6 @@ This module provides access to specialized security knowledge modules
 
 from pathlib import Path
 
-
 # Points to the symlinked prompts directory
 PROMPTS_DIR = Path(__file__).parent.parent.parent / "prompts"
 

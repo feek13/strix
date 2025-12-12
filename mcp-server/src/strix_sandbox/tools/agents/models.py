@@ -1,10 +1,10 @@
 """Data models for multi-agent coordination system."""
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
-import uuid
 
 
 class AgentStatus(str, Enum):

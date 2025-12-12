@@ -1,15 +1,15 @@
 """Multi-agent coordination system for strix-sandbox-mcp."""
 
-from .models import Agent, AgentStatus, Message, AgentEdge, AgentGraphSummary
-from .state_store import agent_store
 from .message_bus import message_bus
+from .models import Agent, AgentEdge, AgentGraphSummary, AgentStatus, Message
+from .state_store import agent_store
 from .tools import (
-    create_agent,
-    send_message_to_agent,
     agent_finish,
-    wait_for_message,
-    view_agent_graph,
+    create_agent,
     finish_scan,
+    send_message_to_agent,
+    view_agent_graph,
+    wait_for_message,
 )
 
 __all__ = [

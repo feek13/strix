@@ -9,7 +9,6 @@ import aiosqlite
 
 from .models import Agent, AgentEdge, AgentGraphSummary, AgentStatus, Message
 
-
 DB_PATH = Path.home() / ".strix" / "agents.db"
 
 

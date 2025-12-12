@@ -10,7 +10,6 @@ from .message_bus import message_bus
 from .models import Agent, AgentEdge, AgentStatus
 from .state_store import agent_store
 
-
 logger = logging.getLogger(__name__)
 
 

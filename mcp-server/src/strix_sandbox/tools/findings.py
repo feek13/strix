@@ -1,12 +1,12 @@
 """Security findings tracking with SQLite persistence."""
 
-import aiosqlite
+import json
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-import uuid
-import json
 
+import aiosqlite
 
 # Database path - can be overridden for testing
 DB_PATH = Path.home() / ".strix" / "findings.db"
@@ -228,13 +228,13 @@ async def export(sandbox_id: str, format: str = "markdown") -> dict[str, Any]:
 def _generate_markdown_report(findings: list[dict], sandbox_id: str) -> str:
     """Generate a Markdown report."""
     lines = [
-        f"# Security Assessment Report",
-        f"",
+        "# Security Assessment Report",
+        "",
         f"**Sandbox:** {sandbox_id}",
         f"**Generated:** {datetime.utcnow().isoformat()}",
-        f"",
-        f"## Summary",
-        f"",
+        "",
+        "## Summary",
+        "",
     ]
 
     # Count by severity
@@ -252,26 +252,26 @@ def _generate_markdown_report(findings: list[dict], sandbox_id: str) -> str:
     for f in findings:
         lines.extend([
             f"### [{f['severity'].upper()}] {f['title']}",
-            f"",
+            "",
             f"**ID:** {f['id']}",
-            f"",
-            f"**Description:**",
+            "",
+            "**Description:**",
             f"{f['description']}",
-            f"",
+            "",
         ])
         if f["evidence"]:
             lines.extend([
-                f"**Evidence:**",
-                f"```",
+                "**Evidence:**",
+                "```",
                 f"{f['evidence']}",
-                f"```",
-                f"",
+                "```",
+                "",
             ])
         if f["remediation"]:
             lines.extend([
-                f"**Remediation:**",
+                "**Remediation:**",
                 f"{f['remediation']}",
-                f"",
+                "",
             ])
         lines.append("---")
         lines.append("")

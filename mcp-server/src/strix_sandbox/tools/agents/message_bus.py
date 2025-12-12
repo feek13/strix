@@ -2,11 +2,9 @@
 
 import asyncio
 import logging
-from typing import Any
 
 from .models import AgentEdge, Message
 from .state_store import agent_store
-
 
 logger = logging.getLogger(__name__)
 

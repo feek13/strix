@@ -1,12 +1,12 @@
 """Strix Sandbox MCP Server - Main entry point."""
 
-from mcp.server.fastmcp import FastMCP
-
 import json
 
-from strix_sandbox.tools import sandbox, browser, terminal, python_exec, proxy, findings, files
-from strix_sandbox.tools.agents import tools as agent_tools
+from mcp.server.fastmcp import FastMCP
+
 from strix_sandbox import prompts
+from strix_sandbox.tools import browser, files, findings, proxy, python_exec, sandbox, terminal
+from strix_sandbox.tools.agents import tools as agent_tools
 
 mcp = FastMCP(
     name="strix-sandbox",
