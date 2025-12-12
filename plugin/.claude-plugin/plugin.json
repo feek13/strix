@@ -20,7 +20,7 @@
     "security-scan"
   ],
   "agents": [
-    "penetration-tester"
+    "strix"
   ],
   "requirements": {
     "mcp": ["strix-sandbox"],
