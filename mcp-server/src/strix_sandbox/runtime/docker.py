@@ -98,9 +98,7 @@ class DockerManager:
 
         for _ in range(timeout):
             try:
-                container = await asyncio.to_thread(
-                    self.client.containers.get, container_id
-                )
+                container = await asyncio.to_thread(self.client.containers.get, container_id)
                 if container.status == "running":
                     # Get assigned ports
                     container.reload()
@@ -133,9 +131,7 @@ class DockerManager:
 
         if state.container_id:
             try:
-                container = await asyncio.to_thread(
-                    self.client.containers.get, state.container_id
-                )
+                container = await asyncio.to_thread(self.client.containers.get, state.container_id)
                 await asyncio.to_thread(container.stop, timeout=10)
             except NotFound:
                 pass  # Container already removed
@@ -156,9 +152,7 @@ class DockerManager:
 
         if state.container_id:
             try:
-                container = await asyncio.to_thread(
-                    self.client.containers.get, state.container_id
-                )
+                container = await asyncio.to_thread(self.client.containers.get, state.container_id)
                 container.reload()
                 result["container_status"] = container.status
                 result["stats"] = self._get_container_stats(container)
@@ -174,12 +168,13 @@ class DockerManager:
         """Get container resource usage stats."""
         try:
             stats = container.stats(stream=False)
-            cpu_delta = stats["cpu_stats"]["cpu_usage"]["total_usage"] - stats[
-                "precpu_stats"
-            ]["cpu_usage"]["total_usage"]
-            system_delta = stats["cpu_stats"]["system_cpu_usage"] - stats[
-                "precpu_stats"
-            ]["system_cpu_usage"]
+            cpu_delta = (
+                stats["cpu_stats"]["cpu_usage"]["total_usage"]
+                - stats["precpu_stats"]["cpu_usage"]["total_usage"]
+            )
+            system_delta = (
+                stats["cpu_stats"]["system_cpu_usage"] - stats["precpu_stats"]["system_cpu_usage"]
+            )
             cpu_percent = (cpu_delta / system_delta) * 100 if system_delta > 0 else 0
 
             memory_usage = stats["memory_stats"].get("usage", 0)

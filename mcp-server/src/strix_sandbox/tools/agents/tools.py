@@ -214,9 +214,7 @@ async def send_message_to_agent(
             priority=priority,
         )
 
-        logger.info(
-            f"Message {msg.message_id} sent from '{sender_name}' to '{target.name}'"
-        )
+        logger.info(f"Message {msg.message_id} sent from '{sender_name}' to '{target.name}'")
 
         return {
             "success": True,
@@ -300,9 +298,7 @@ async def agent_finish(
         # Report to parent if requested
         parent_notified = False
         if report_to_parent and agent.parent_id:
-            findings_xml = "\n".join(
-                f"        <finding>{f}</finding>" for f in (findings or [])
-            )
+            findings_xml = "\n".join(f"        <finding>{f}</finding>" for f in (findings or []))
             recommendations_xml = "\n".join(
                 f"        <recommendation>{r}</recommendation>"
                 for r in (final_recommendations or [])
@@ -414,10 +410,12 @@ async def wait_for_message(
                 if sender:
                     sender_name = sender.name
 
-            received_messages.append({
-                **msg.to_dict(),
-                "sender_name": sender_name,
-            })
+            received_messages.append(
+                {
+                    **msg.to_dict(),
+                    "sender_name": sender_name,
+                }
+            )
 
         # Update agent status back to running
         agent.status = AgentStatus.RUNNING
@@ -724,16 +722,20 @@ async def _check_active_agents(
             continue
 
         if agent.status == AgentStatus.RUNNING:
-            running_agents.append({
-                "id": agent.agent_id,
-                "name": agent.name,
-                "task": agent.task,
-            })
+            running_agents.append(
+                {
+                    "id": agent.agent_id,
+                    "name": agent.name,
+                    "task": agent.task,
+                }
+            )
         elif agent.status == AgentStatus.WAITING:
-            waiting_agents.append({
-                "id": agent.agent_id,
-                "name": agent.name,
-            })
+            waiting_agents.append(
+                {
+                    "id": agent.agent_id,
+                    "name": agent.name,
+                }
+            )
 
     if running_agents or waiting_agents:
         # Build detailed error message (matching original format)
@@ -749,12 +751,14 @@ async def _check_active_agents(
             for a in waiting_agents:
                 message_parts.append(f"  - {a['name']} ({a['id']})")
 
-        message_parts.extend([
-            "\n\nSuggested actions:",
-            "1. Use agent_wait_for_message to wait for all agents to complete",
-            "2. Send messages to agents asking them to finish if urgent",
-            "3. Use agent_view_graph to monitor agent status",
-        ])
+        message_parts.extend(
+            [
+                "\n\nSuggested actions:",
+                "1. Use agent_wait_for_message to wait for all agents to complete",
+                "2. Send messages to agents asking them to finish if urgent",
+                "3. Use agent_view_graph to monitor agent status",
+            ]
+        )
 
         return {
             "success": False,
@@ -836,8 +840,7 @@ async def finish_scan(
         await agent_store.set_scan_result(sandbox_id, scan_result)
 
         logger.info(
-            f"Scan completed for sandbox '{sandbox_id}': "
-            f"{'SUCCESS' if success else 'FAILED'}"
+            f"Scan completed for sandbox '{sandbox_id}': {'SUCCESS' if success else 'FAILED'}"
         )
 
         return {

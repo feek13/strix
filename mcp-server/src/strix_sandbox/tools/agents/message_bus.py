@@ -90,9 +90,7 @@ class MessageBus:
         event = await self._get_event(to_agent_id)
         event.set()
 
-        logger.debug(
-            f"Message {message.message_id} sent from {from_agent_id} to {to_agent_id}"
-        )
+        logger.debug(f"Message {message.message_id} sent from {from_agent_id} to {to_agent_id}")
 
         return message
 
@@ -117,9 +115,7 @@ class MessageBus:
         # Check if there are already unread messages
         existing_messages = await agent_store.get_unread_messages(agent_id)
         if existing_messages:
-            logger.debug(
-                f"Agent {agent_id} has {len(existing_messages)} existing unread messages"
-            )
+            logger.debug(f"Agent {agent_id} has {len(existing_messages)} existing unread messages")
             return existing_messages
 
         try:

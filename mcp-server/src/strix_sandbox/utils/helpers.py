@@ -36,7 +36,9 @@ def sanitize_path(path: str) -> str:
     return path
 
 
-def format_response(success: bool, data: dict[str, Any] | None = None, error: str | None = None) -> dict[str, Any]:
+def format_response(
+    success: bool, data: dict[str, Any] | None = None, error: str | None = None
+) -> dict[str, Any]:
     """Format a standard response."""
     response: dict[str, Any] = {"success": success}
     if data:

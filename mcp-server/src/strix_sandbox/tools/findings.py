@@ -57,7 +57,17 @@ async def create(
             INSERT INTO findings (id, sandbox_id, title, severity, description, evidence, remediation, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (finding_id, sandbox_id, title, severity.lower(), description, evidence, remediation, now, now),
+            (
+                finding_id,
+                sandbox_id,
+                title,
+                severity.lower(),
+                description,
+                evidence,
+                remediation,
+                now,
+                now,
+            ),
         )
         await db.commit()
         await db.close()
@@ -101,17 +111,19 @@ async def list_findings(
 
         findings = []
         for row in rows:
-            findings.append({
-                "id": row[0],
-                "sandbox_id": row[1],
-                "title": row[2],
-                "severity": row[3],
-                "description": row[4],
-                "evidence": row[5],
-                "remediation": row[6],
-                "created_at": row[7],
-                "updated_at": row[8],
-            })
+            findings.append(
+                {
+                    "id": row[0],
+                    "sandbox_id": row[1],
+                    "title": row[2],
+                    "severity": row[3],
+                    "description": row[4],
+                    "evidence": row[5],
+                    "remediation": row[6],
+                    "created_at": row[7],
+                    "updated_at": row[8],
+                }
+            )
 
         return {
             "success": True,
@@ -250,29 +262,35 @@ def _generate_markdown_report(findings: list[dict], sandbox_id: str) -> str:
     lines.extend(["", "## Findings", ""])
 
     for f in findings:
-        lines.extend([
-            f"### [{f['severity'].upper()}] {f['title']}",
-            "",
-            f"**ID:** {f['id']}",
-            "",
-            "**Description:**",
-            f"{f['description']}",
-            "",
-        ])
+        lines.extend(
+            [
+                f"### [{f['severity'].upper()}] {f['title']}",
+                "",
+                f"**ID:** {f['id']}",
+                "",
+                "**Description:**",
+                f"{f['description']}",
+                "",
+            ]
+        )
         if f["evidence"]:
-            lines.extend([
-                "**Evidence:**",
-                "```",
-                f"{f['evidence']}",
-                "```",
-                "",
-            ])
+            lines.extend(
+                [
+                    "**Evidence:**",
+                    "```",
+                    f"{f['evidence']}",
+                    "```",
+                    "",
+                ]
+            )
         if f["remediation"]:
-            lines.extend([
-                "**Remediation:**",
-                f"{f['remediation']}",
-                "",
-            ])
+            lines.extend(
+                [
+                    "**Remediation:**",
+                    f"{f['remediation']}",
+                    "",
+                ]
+            )
         lines.append("---")
         lines.append("")
 
@@ -293,14 +311,16 @@ def _generate_html_report(findings: list[dict], sandbox_id: str) -> str:
     for f in findings:
         color = severity_colors.get(f["severity"], "#6c757d")
         evidence_html = f"<h4>Evidence</h4><pre>{f['evidence']}</pre>" if f["evidence"] else ""
-        remediation_html = f"<h4>Remediation</h4><p>{f['remediation']}</p>" if f["remediation"] else ""
+        remediation_html = (
+            f"<h4>Remediation</h4><p>{f['remediation']}</p>" if f["remediation"] else ""
+        )
 
         findings_html += f"""
         <div class="finding">
-            <h3><span class="severity" style="background-color: {color}">{f['severity'].upper()}</span> {f['title']}</h3>
-            <p><small>ID: {f['id']}</small></p>
+            <h3><span class="severity" style="background-color: {color}">{f["severity"].upper()}</span> {f["title"]}</h3>
+            <p><small>ID: {f["id"]}</small></p>
             <h4>Description</h4>
-            <p>{f['description']}</p>
+            <p>{f["description"]}</p>
             {evidence_html}
             {remediation_html}
         </div>

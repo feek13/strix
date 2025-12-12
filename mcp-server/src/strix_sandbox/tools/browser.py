@@ -18,9 +18,7 @@ async def launch(sandbox_id: str = "default") -> dict[str, Any]:
     return await _execute(sandbox_id, "browser_launch")
 
 
-async def goto(
-    sandbox_id: str, url: str, wait_until: str = "domcontentloaded"
-) -> dict[str, Any]:
+async def goto(sandbox_id: str, url: str, wait_until: str = "domcontentloaded") -> dict[str, Any]:
     """Navigate browser to a URL."""
     return await _execute(sandbox_id, "browser_goto", url=url, wait_until=wait_until)
 

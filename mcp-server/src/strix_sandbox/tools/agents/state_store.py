@@ -174,9 +174,7 @@ class AgentStateStore:
     async def get_agent(self, agent_id: str) -> Agent | None:
         """Get an agent by ID."""
         db = await self._get_db()
-        async with db.execute(
-            "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
-        ) as cursor:
+        async with db.execute("SELECT * FROM agents WHERE agent_id = ?", (agent_id,)) as cursor:
             row = await cursor.fetchone()
             if row:
                 return self._row_to_agent(row)
@@ -217,9 +215,7 @@ class AgentStateStore:
         db = await self._get_db()
 
         # Delete conversation history
-        await db.execute(
-            "DELETE FROM conversation_history WHERE agent_id = ?", (agent_id,)
-        )
+        await db.execute("DELETE FROM conversation_history WHERE agent_id = ?", (agent_id,))
 
         # Delete messages to/from this agent
         await db.execute(
@@ -297,17 +293,13 @@ class AgentStateStore:
     async def mark_message_read(self, message_id: str) -> None:
         """Mark a message as read."""
         db = await self._get_db()
-        await db.execute(
-            "UPDATE messages SET read = 1 WHERE message_id = ?", (message_id,)
-        )
+        await db.execute("UPDATE messages SET read = 1 WHERE message_id = ?", (message_id,))
         await db.commit()
 
     async def mark_message_delivered(self, message_id: str) -> None:
         """Mark a message as delivered."""
         db = await self._get_db()
-        await db.execute(
-            "UPDATE messages SET delivered = 1 WHERE message_id = ?", (message_id,)
-        )
+        await db.execute("UPDATE messages SET delivered = 1 WHERE message_id = ?", (message_id,))
         await db.commit()
 
     # ============== Edge Operations ==============
@@ -349,9 +341,7 @@ class AgentStateStore:
         """Get the root agent ID for a sandbox."""
         db = await self._get_db()
         key = f"root_agent_id_{sandbox_id}"
-        async with db.execute(
-            "SELECT value FROM graph_metadata WHERE key = ?", (key,)
-        ) as cursor:
+        async with db.execute("SELECT value FROM graph_metadata WHERE key = ?", (key,)) as cursor:
             row = await cursor.fetchone()
             return row["value"] if row else None
 
@@ -367,9 +357,7 @@ class AgentStateStore:
         )
         await db.commit()
 
-    async def get_graph_summary(
-        self, sandbox_id: str | None = None
-    ) -> AgentGraphSummary:
+    async def get_graph_summary(self, sandbox_id: str | None = None) -> AgentGraphSummary:
         """Get summary statistics for the agent graph."""
         agents = await self.list_agents(sandbox_id)
         summary = AgentGraphSummary(total_agents=len(agents))
@@ -394,9 +382,7 @@ class AgentStateStore:
 
     # ============== Conversation History ==============
 
-    async def add_message_to_history(
-        self, agent_id: str, role: str, content: str
-    ) -> None:
+    async def add_message_to_history(self, agent_id: str, role: str, content: str) -> None:
         """Add a message to an agent's conversation history."""
         db = await self._get_db()
         await db.execute(
@@ -424,9 +410,7 @@ class AgentStateStore:
     async def clear_conversation_history(self, agent_id: str) -> None:
         """Clear an agent's conversation history."""
         db = await self._get_db()
-        await db.execute(
-            "DELETE FROM conversation_history WHERE agent_id = ?", (agent_id,)
-        )
+        await db.execute("DELETE FROM conversation_history WHERE agent_id = ?", (agent_id,))
         await db.commit()
 
     # ============== Scan Result Operations ==============
@@ -459,9 +443,7 @@ class AgentStateStore:
         """
         db = await self._get_db()
         key = f"scan_result_{sandbox_id}"
-        async with db.execute(
-            "SELECT value FROM graph_metadata WHERE key = ?", (key,)
-        ) as cursor:
+        async with db.execute("SELECT value FROM graph_metadata WHERE key = ?", (key,)) as cursor:
             row = await cursor.fetchone()
             if row:
                 return json.loads(row["value"])

@@ -28,9 +28,7 @@ async def search(sandbox_id: str, pattern: str, path: str = ".") -> dict[str, An
     return await _execute(sandbox_id, "file_search", pattern=pattern, path=path)
 
 
-async def str_replace(
-    sandbox_id: str, path: str, old_str: str, new_str: str
-) -> dict[str, Any]:
+async def str_replace(sandbox_id: str, path: str, old_str: str, new_str: str) -> dict[str, Any]:
     """
     Replace an exact string in a file.
 
@@ -51,9 +49,7 @@ async def str_replace(
     )
 
 
-async def list_dir(
-    sandbox_id: str, path: str = ".", recursive: bool = False
-) -> dict[str, Any]:
+async def list_dir(sandbox_id: str, path: str = ".", recursive: bool = False) -> dict[str, Any]:
     """
     List files and directories in the sandbox workspace.
 
@@ -65,9 +61,7 @@ async def list_dir(
     Returns:
         files, directories, total_files, total_dirs
     """
-    return await _execute(
-        sandbox_id, "file_list", path=path, recursive=recursive
-    )
+    return await _execute(sandbox_id, "file_list", path=path, recursive=recursive)
 
 
 async def view(
