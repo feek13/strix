@@ -156,13 +156,29 @@
 3. Prove header weaknesses: inline rendering without nosniff or missing attachment; present exact response headers.
 4. Show race or pipeline gap: access before AV/CDR; extraction outside intended directory; derivative creation from malicious input.
 5. Provide reproducible steps: request/response for upload and subsequent access, with minimal PoCs.
+6. MANDATORY NEGATIVE TEST: Upload a legitimate file of an allowed type and confirm it is stored and served correctly with proper Content-Type, Content-Disposition, and X-Content-Type-Options headers -- then show the malicious upload bypasses these controls.
+7. MANDATORY FALSE POSITIVE CHECK: Verify that the uploaded malicious content actually executes or renders actively (not just stored) by accessing the served file and confirming execution in browser or server context. Check that the file is not quarantined, stripped, or served with attachment disposition.
+8. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the uploaded content demonstrably executes (server-side RCE, client-side XSS in browser) or renders as active content when accessed, the negative test shows normal uploads are handled safely, and the bypass is reproducible. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
 - Upload stored but never served back; or always served as attachment with strict nosniff
 - Converters run in locked-down sandboxes with no external IO and no script engines; no path traversal on archive extraction
 - AV/CDR blocks the payload and quarantines; access before scan is impossible by design
+- File uploaded with malicious extension but served from a different domain/CDN with correct Content-Type override and attachment disposition
+- SVG/HTML uploaded but converted to a safe format (PNG, PDF) before serving, stripping all active content
+- Upload endpoint accepts the file but the serving path applies X-Content-Type-Options: nosniff and Content-Disposition: attachment, preventing browser execution
+- File stored in object storage with randomized keys and no directory listing, making direct access infeasible without the application serving it safely
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates that uploaded malicious content actually executes or renders actively when accessed (server-side code execution, or client-side script execution in a victim's browser)
+2. The negative test confirms this is not normal application behavior (legitimate uploads are served with safe headers; the malicious upload bypasses these controls)
+3. At least one false positive explanation has been explicitly ruled out (e.g., the file is not converted to safe format, not served as attachment, not blocked by nosniff, not quarantined by AV)
+4. The impact is real and demonstrated (not theoretical) - actual RCE, stored XSS execution in browser, or malware served to users confirmed
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Remote code execution on application stack or media toolchain host

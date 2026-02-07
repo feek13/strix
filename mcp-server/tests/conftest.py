@@ -68,7 +68,17 @@ def sample_finding() -> dict:
     return {
         "title": "SQL Injection in Login Form",
         "severity": "high",
-        "description": "The login form is vulnerable to SQL injection attacks.",
+        "description": (
+            "## Affected URL\nhttps://example.com/api/login\n\n"
+            "## Proof of Concept\n"
+            "POST /api/login with payload: username=' OR '1'='1' --&password=test\n"
+            "Response returned 200 with valid session token, bypassing authentication.\n\n"
+            "## Impact\nFull authentication bypass allowing unauthenticated access to any account.\n\n"
+            "## Steps to Reproduce\n"
+            "1. Navigate to /api/login\n"
+            "2. Submit username=' OR '1'='1' -- as username\n"
+            "3. Observe valid session token in response\n"
+        ),
         "evidence": "Payload: ' OR '1'='1' -- bypasses authentication",
         "remediation": "Use parameterized queries for all database operations.",
     }

@@ -114,6 +114,9 @@
 3. Prove refresh token reuse without rotation detection or revocation.
 4. Confirm header abuse (kid/jku/x5u/jwk) leading to key selection under attacker control.
 5. Provide owner vs non-owner evidence with identical requests differing only in token context.
+6. MANDATORY NEGATIVE TEST: Confirm that a properly signed token with correct issuer/audience/claims is accepted, and that a token with an invalid signature, expired claims, or wrong issuer is rejected -- proving the vulnerability is in a specific validation gap, not universal acceptance.
+7. MANDATORY FALSE POSITIVE CHECK: Verify that the token manipulation actually grants unauthorized access and is not rejected by downstream authorization checks, middleware, or service-level validation that the initial endpoint did not enforce.
+8. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the forged/manipulated token grants access to resources or actions not authorized for the original claims, the negative test shows specific validation is missing (not all validation), and the access is reproducible. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
@@ -121,7 +124,20 @@
 - Key pinning with JWKS whitelist and TLS validation
 - Short-lived tokens with rotation and revocation on logout
 - ID token not accepted by APIs that require access tokens
+- Algorithm header ignored because the server pins the algorithm server-side (alg manipulation has no effect)
+- Token accepted at one endpoint but downstream service-level authorization prevents actual access to protected resources
+- Expired tokens returning 200 on non-sensitive endpoints that do not require authentication (public routes)
+- JWKS rotation window where old keys are still valid by design (grace period is intentional, not a vulnerability)
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates that a forged, manipulated, or cross-context token is accepted AND grants unauthorized access to protected resources or actions
+2. The negative test confirms this is not normal application behavior (properly constructed tokens with wrong signatures/claims are rejected in other validation paths)
+3. At least one false positive explanation has been explicitly ruled out (e.g., the server does not pin algorithms, downstream services do not block access, the endpoint is not public)
+4. The impact is real and demonstrated (not theoretical) - actual access to another user's data, privilege escalation, or persistent unauthorized session confirmed
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Account takeover and durable session persistence

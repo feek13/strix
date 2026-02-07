@@ -513,19 +513,55 @@ async def finding_create(
     sandbox_id: str = "default",
 ) -> dict:
     """
-    Record a security finding/vulnerability.
+    Record a VERIFIED security finding/vulnerability.
+
+    MANDATORY: Only use when ALL of the following are true:
+    1. You have a working proof of concept demonstrating the vulnerability
+    2. You have performed negative testing (verified behavior differs without the attack)
+    3. You have ruled out false positive explanations
+    4. Confidence level is CONFIRMED (90-100)
+
+    DO NOT USE for theoretical vulnerabilities, unverified observations, or when
+    HTTP status code is your only evidence. Use create_note for suspected issues.
+
+    The description MUST include: Affected URL/endpoint, vulnerability type,
+    proof of concept with exact requests/responses, demonstrated impact,
+    numbered reproduction steps, and false positive ruling.
 
     Args:
-        title: Finding title
-        severity: Severity level - "critical", "high", "medium", "low", "info"
-        description: Detailed description of the vulnerability
-        evidence: Proof of concept or evidence (code, request/response, etc.)
+        title: Clear title - "[VULN_TYPE] in [COMPONENT] - [BRIEF IMPACT]"
+        severity: Based on DEMONSTRATED impact - "critical", "high", "medium", "low", "info"
+        description: Complete details following required structure (see above)
+        evidence: Proof of concept requests/responses and before/after state
         remediation: Suggested fix or mitigation
         sandbox_id: Sandbox ID
 
     Returns:
-        finding_id, created_at
+        finding_id, created_at. Reports missing required detail will be rejected.
     """
+    # Content structure validation
+    desc_lower = description.lower()
+    required_sections = ["affected url", "proof of concept", "impact", "steps to reproduce"]
+    missing = [
+        s
+        for s in required_sections
+        if not any(v in desc_lower for v in [f"## {s}", f"**{s}", f"{s}:", s.replace(" ", "_")])
+    ]
+    if missing:
+        return {
+            "success": False,
+            "error": (
+                f"Finding rejected: missing required sections: {', '.join(missing)}. "
+                f"Include: Affected URL, Proof of Concept with requests/responses, "
+                f"Impact, and Steps to Reproduce. Use create_note for unverified observations."
+            ),
+        }
+    if len(description.strip()) < 200:
+        return {
+            "success": False,
+            "error": "Finding rejected: description too brief for a verified vulnerability report.",
+        }
+
     return await findings.create(sandbox_id, title, severity, description, evidence, remediation)
 
 

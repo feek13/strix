@@ -139,13 +139,29 @@
 2. Provide side-by-side evidence for intended vs abused flows with the same principal.
 3. Demonstrate durability: the undesired state persists and is observable in authoritative sources (ledger, emails, admin views).
 4. Quantify impact per action and at scale (unit loss × feasible repetitions).
+5. MANDATORY NEGATIVE TEST: Execute the intended workflow in the correct order and with valid inputs, and confirm the application enforces the invariant correctly -- proving that the violation requires the specific abuse sequence, not that the invariant is never enforced.
+6. MANDATORY FALSE POSITIVE CHECK: Verify the observed behavior is not an intentional business rule (e.g., documented promotional logic, admin-approved override, graceful degradation) by checking documentation, UI messaging, and admin interfaces.
+7. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the invariant violation is durable in the authoritative data store, the negative test shows the intended flow enforces the invariant, and the behavior is not documented as intentional. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
 - Promotional behavior explicitly allowed by policy (documented free trials, goodwill credits)
 - Visual-only inconsistencies with no durable or exploitable state change
 - Admin-only operations with proper audit and approvals
+- Grace periods and intentional tolerance windows built into billing/subscription logic (e.g., trial extensions, proration credits)
+- Rounding differences that are within acceptable financial thresholds and do not accumulate exploitably
+- Feature access that persists briefly after downgrade due to caching/propagation delays but self-corrects
+- Test/sandbox environments where business rules are intentionally relaxed
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates a concrete invariant violation (double refund, negative balance, exceeded quota, unauthorized state transition) with durable evidence in the authoritative data store
+2. The negative test confirms this is not normal application behavior (the intended flow enforces the invariant; only the abuse sequence breaks it)
+3. At least one false positive explanation has been explicitly ruled out (e.g., not a documented promotion, not a visual glitch, not within acceptable tolerance, not a test environment)
+4. The impact is real and demonstrated (not theoretical) - quantifiable financial loss, policy bypass, or unauthorized access with concrete evidence
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Direct financial loss (fraud, arbitrage, over-refunds, unpaid consumption)

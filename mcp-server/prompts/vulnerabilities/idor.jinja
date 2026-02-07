@@ -162,6 +162,9 @@ query IDOR {
 3. Prove cross-channel consistency: same unauthorized access via at least two transports (e.g., REST and GraphQL).
 4. Document tenant boundary violations (if applicable).
 5. Provide reproducible steps and evidence (requests/responses for owner vs non-owner).
+6. MANDATORY NEGATIVE TEST: Confirm that accessing your own object with your own token succeeds, and that accessing another user's object with their own token also succeeds -- proving the authorization check is missing, not that the object does not exist.
+7. MANDATORY FALSE POSITIVE CHECK: Verify the accessed data actually belongs to a different user/tenant and is not public, shared, or intentionally accessible by design (check application docs, sharing settings, and role definitions).
+8. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the response contains data verifiably belonging to another user/tenant, the negative test confirms authorization is not enforced, and the resource is not intentionally public. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
@@ -169,7 +172,20 @@ query IDOR {
 - Soft-privatized data where content is already public
 - Idempotent metadata lookups that do not reveal sensitive content
 - Correct row-level checks enforced across all channels
+- Resources shared via collaboration features (team workspaces, shared folders) where cross-user access is intentional
+- Sequential/predictable IDs that return 403/404 for unauthorized users (authorization is working correctly)
+- Cached responses from CDN/proxy that appear to show another user's data but are actually stale self-owned content
+- API responses that return the same generic structure regardless of the object ID (no actual cross-user data leakage)
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates access to data or actions belonging to a different user/tenant using a swapped object reference
+2. The negative test confirms this is not normal application behavior (own-object access works, other-user-object access should fail but does not)
+3. At least one false positive explanation has been explicitly ruled out (e.g., the resource is not public, not shared, and not intentionally cross-accessible)
+4. The impact is real and demonstrated (not theoretical) - actual sensitive data from another user/tenant is visible or a state change on their resource succeeded
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Cross-account data exposure (PII/PHI/PCI)

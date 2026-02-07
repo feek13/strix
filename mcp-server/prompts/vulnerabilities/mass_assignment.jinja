@@ -106,13 +106,29 @@
 3. Demonstrate consistency across at least two encodings or channels.
 4. For nested/bulk, show that protected fields are written within child objects or array elements.
 5. Quantify impact (e.g., role flip, cross-tenant move, quota increase) and reproducibility.
+6. MANDATORY NEGATIVE TEST: Submit the same request with only allowed/expected fields and confirm the update succeeds normally -- then show that adding the sensitive field also gets persisted, proving the server does not filter it.
+7. MANDATORY FALSE POSITIVE CHECK: Verify the sensitive field is actually persisted and not just echoed in the response. Perform a subsequent GET request or check the admin view to confirm the forbidden attribute was durably changed.
+8. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the forbidden attribute is verifiably persisted in the data store (confirmed via separate GET or admin view), the negative test shows normal fields work correctly, and the field change has real security impact (role change, ownership transfer, etc.). Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
 - Server recomputes derived fields (plan/price/role) ignoring client input
 - Fields marked read-only and enforced consistently across encodings
 - Only UI-side changes with no persisted effect
+- Response echoes the submitted field value but the database/store retains the original value (optimistic response pattern)
+- Field accepted in the request but overridden by server-side logic before persistence (e.g., role always set from session context)
+- Extra fields silently dropped by the serializer/deserializer without being bound to the model
+- Admin-only fields that are writable by admin users as intended (not a privilege escalation if the caller has the correct role)
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates that a sensitive/protected field submitted by a non-privileged caller is durably persisted in the data store (confirmed via subsequent GET request or admin view, not just the mutation response)
+2. The negative test confirms this is not normal application behavior (standard allowed fields work correctly; only the forbidden field injection reveals missing filtering)
+3. At least one false positive explanation has been explicitly ruled out (e.g., the field is not recomputed server-side, not silently dropped, not just echoed in response without persistence)
+4. The impact is real and demonstrated (not theoretical) - actual privilege escalation, ownership change, billing manipulation, or quota bypass confirmed
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Privilege escalation and admin feature access

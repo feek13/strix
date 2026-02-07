@@ -131,6 +131,9 @@
 3. Reproducible under controlled synchronization (HTTP/2, last-byte sync) across multiple runs.
 4. Evidence across channels (e.g., REST and GraphQL) if applicable.
 5. Include before/after state and exact request set used.
+6. MANDATORY NEGATIVE TEST: Run the same concurrent requests against an operation that is expected to be idempotent or rate-limited, and confirm that the application correctly handles it (only one succeeds). This proves the race condition is specific to the vulnerable endpoint.
+7. MANDATORY FALSE POSITIVE CHECK: Verify the duplicate state change is durable and not just a transient UI artifact, optimistic response, or eventually-consistent read that self-corrects within seconds.
+8. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the duplicate state change persists in the authoritative data store (verified via GET/query after a delay), the negative test shows other endpoints handle concurrency correctly, and the behavior reproduces across multiple runs. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
@@ -138,7 +141,19 @@
 - Serializable transactions or correct advisory locks/queues
 - Visual-only glitches without durable state change
 - Rate limits that reject excess with atomic counters
+- Eventually-consistent systems where duplicate reads self-correct within the consistency window (check again after a few seconds)
+- Optimistic UI responses that show success but the backend correctly deduplicates (verify in authoritative store, not just API response)
+- Multiple 200 responses where only the first actually committed a state change and subsequent ones were no-ops
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates a durable invariant violation (e.g., double credit, duplicate record, exceeded quota) confirmed in the authoritative data store after a reasonable delay
+2. The negative test confirms this is not normal application behavior (sequential or properly synchronized requests produce correct results)
+3. At least one false positive explanation has been explicitly ruled out (e.g., confirmed not an optimistic UI glitch, not eventually consistent self-correction, not a deduped no-op)
+4. The impact is real and demonstrated (not theoretical) - actual financial loss, data corruption, or policy bypass is provable
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Financial loss (double spend, over-issuance of credits/refunds)

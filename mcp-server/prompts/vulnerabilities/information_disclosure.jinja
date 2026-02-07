@@ -191,6 +191,9 @@
 3. Attempt minimal, reversible exploitation or present a concrete step-by-step chain (what to try next and why).
 4. Show reproducibility and minimal request set; include cross-channel confirmation where applicable.
 5. Bound scope (user, tenant, environment) and data sensitivity classification.
+6. MANDATORY NEGATIVE TEST: Confirm that the disclosed information is not available through intended public channels (documentation, public APIs, marketing pages) by checking whether an anonymous/unauthenticated user or the application's own docs expose the same data by design.
+7. MANDATORY FALSE POSITIVE CHECK: Verify the disclosed information is actually sensitive and actionable -- not generic version banners, intentional public metadata, or redacted/sanitized data that provides no exploitation path.
+8. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the disclosed data is verifiably sensitive (credentials, internal paths, cross-tenant data, or version with exploitable CVE), the negative test shows it is not intentionally public, and an exploitation path or concrete chain exists. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
@@ -199,7 +202,19 @@
 - Redacted fields that do not change differential oracles (length/ETag stable)
 - Version banners with no exposed vulnerable surface and no chain
 - Owner-visible-only details that do not cross identity/tenant boundaries
+- Standard HTTP headers (Server: nginx, X-Powered-By: Express) without precise version numbers or known exploitable CVEs
+- Source maps or debug endpoints that are restricted to internal networks or require authentication
+- API documentation (Swagger/OpenAPI) that is intentionally published and does not expose sensitive internal operations
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates disclosure of genuinely sensitive information (credentials, secrets, internal architecture details, cross-tenant data, or versions with known exploitable CVEs)
+2. The negative test confirms this is not intentionally public information (not in docs, not in public APIs, not in marketing materials)
+3. At least one false positive explanation has been explicitly ruled out (e.g., not a generic header, not redacted data, not owner-only data, not intentional documentation)
+4. The impact is real and demonstrated (not theoretical) - a concrete exploitation chain exists or the disclosed data directly enables further attacks
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Accelerated exploitation of RCE/LFI/SSRF via precise versions and paths

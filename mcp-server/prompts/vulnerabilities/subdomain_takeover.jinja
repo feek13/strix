@@ -126,13 +126,29 @@
 2. After claim: serve unique content and verify over HTTPS at the target subdomain.
 3. Optional: issue a DV certificate (legal scope) and reference CT entry as durable evidence.
 4. Demonstrate impact chains (CSP/script-src trust, OAuth redirect acceptance, cookie Domain scoping) with minimal PoCs.
+5. MANDATORY NEGATIVE TEST: Verify that other subdomains with similar CNAME patterns to the same provider are correctly bound and not claimable -- proving the takeover is specific to the dangling/orphaned record, not a general misconfiguration of the provider.
+6. MANDATORY FALSE POSITIVE CHECK: Confirm the subdomain is actually claimable by verifying the provider allows resource creation with that name without ownership verification. A "not found" or provider error page alone does not confirm takeover -- you must verify the claim path is open.
+7. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if you have either successfully claimed the resource and served content on the subdomain, or have verified with the specific provider's documentation that the resource name is available and claimable without domain ownership verification. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
-- “Unknown domain” pages that are not claimable due to enforced TXT/ownership checks.
-- Provider-branded default pages for valid, owned resources (not a takeover) versus “unclaimed resource” states
+- "Unknown domain" pages that are not claimable due to enforced TXT/ownership checks.
+- Provider-branded default pages for valid, owned resources (not a takeover) versus "unclaimed resource" states
 - Soft 404s from your own infrastructure or catch-all vhosts
+- Provider error pages for services that now require TXT domain verification before custom domain binding (historically claimable but currently hardened)
+- CNAME pointing to a provider where the specific product/tier no longer allows custom domain claims without verification
+- Subdomain resolving to a provider IP but the provider's platform rejects unverified domain binding attempts with a clear error
+- Internal subdomains with CNAME to decommissioned services that are behind VPN/firewall and not reachable from the internet
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates actual or verified claimability of the dangling resource (content served on the subdomain, or provider documentation confirms the specific resource type is claimable without ownership verification)
+2. The negative test confirms this is not a general provider behavior (other subdomains on the same provider are correctly bound and not claimable)
+3. At least one false positive explanation has been explicitly ruled out (e.g., the provider does not require TXT verification for this resource type, the error page indicates unclaimed not just misconfigured, the subdomain is internet-reachable)
+4. The impact is real and demonstrated (not theoretical) - content serving on trusted subdomain, cookie scope exploitation, or OAuth redirect abuse is concretely feasible
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Content injection under trusted subdomain: phishing, malware delivery, brand damage

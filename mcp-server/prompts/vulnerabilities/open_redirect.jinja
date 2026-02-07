@@ -147,6 +147,9 @@ Test with mixed Unicode normalization and IDNA conversion
 2. Show bypass of the stated validation (regex/allowlist) using canonicalization variants.
 3. Test multi-hop: prove only first hop is validated and second hop escapes constraints.
 4. For OAuth/SAML, demonstrate code/RelayState delivery to an attacker-controlled endpoint with role-separated evidence.
+5. MANDATORY NEGATIVE TEST: Submit a legitimate, expected redirect target (e.g., an internal page path) and confirm the application redirects correctly to the intended location -- proving the redirect mechanism works normally and the external redirect is specifically due to the bypass.
+6. MANDATORY FALSE POSITIVE CHECK: Verify the redirect actually navigates the browser to the external attacker-controlled domain (check the Location header or browser address bar) and is not merely reflected in the response body, logged, or displayed as a link the user must manually click.
+7. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the browser actually navigates to the external domain via the server's redirect response, the negative test shows internal redirects work correctly, and the redirect is automatic (no user click required on the external link). Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
@@ -154,7 +157,19 @@ Test with mixed Unicode normalization and IDNA conversion
 - Exact pre-registered OAuth redirect_uri with strict verifier
 - Validators using a single canonical parser and comparing post-IDNA host and scheme
 - User prompts that show the exact final destination before navigating and refuse unknown schemes
+- Links displayed to the user that require a manual click to navigate (not automatic redirect) with clear external URL shown
+- Redirect URLs that are validated and rejected before the 3xx response is sent (application returns an error page instead of redirecting)
+- Client-side JavaScript that sanitizes the redirect target and only navigates to same-origin paths despite accepting user input
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates an automatic browser redirect (3xx Location header or JavaScript navigation) to an attacker-controlled external domain through the application's redirect mechanism
+2. The negative test confirms this is not normal application behavior (legitimate internal redirect targets work correctly; only the crafted external URL escapes validation)
+3. At least one false positive explanation has been explicitly ruled out (e.g., the redirect is automatic not manual-click, the URL is not sanitized client-side, the server does not block the redirect)
+4. The impact is real and demonstrated (not theoretical) - phishing feasibility, OAuth code interception, or SSRF chaining through the redirect is concretely shown
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Credential and token theft via phishing and OAuth/OIDC interception

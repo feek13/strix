@@ -147,13 +147,29 @@
 3. Prove behavior across at least two browsers or contexts (top-level nav vs XHR/fetch).
 4. Provide before/after state evidence for the same account.
 5. If defenses exist, show the exact condition under which they are bypassed (content-type, method override, null Origin).
+6. MANDATORY NEGATIVE TEST: Confirm that the same state-changing request with a valid CSRF token and correct Origin header succeeds, and that removing the token or sending a cross-origin request without it causes a different (rejected) outcome -- proving the bypass is real.
+7. MANDATORY FALSE POSITIVE CHECK: Verify the endpoint actually performs a meaningful state change (not just a read or idempotent operation) and that the request originates from a truly cross-origin context (not same-origin or same-site).
+8. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the cross-origin PoC page triggers a verifiable state change in the victim's account, the negative test shows CSRF protection is absent or bypassable, and the state change persists. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
 - Token verification present and required; Origin/Referer enforced consistently.
 - No cookies sent on cross-site requests (SameSite=Strict, no HTTP auth) and no state change via simple requests.
 - Only idempotent, non-sensitive operations affected.
+- SameSite=Lax cookies on POST requests that require preflight (cross-origin POST blocked by browser)
+- Bearer token authentication without cookies (requests require explicit Authorization header that attackers cannot supply cross-origin)
+- Endpoints that appear state-changing but are actually idempotent or produce no meaningful side effect
+- CORS preflight correctly blocking the cross-origin request before it reaches the server
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates a cross-origin page that triggers a real, meaningful state change on the target application without any user interaction beyond visiting the page
+2. The negative test confirms this is not normal application behavior (CSRF token or origin enforcement is missing or bypassable, not just untested)
+3. At least one false positive explanation has been explicitly ruled out (e.g., cookies are sent cross-site, the operation is not idempotent, bearer-only auth is not in use)
+4. The impact is real and demonstrated (not theoretical) - actual account state change (password, email, role, payment) confirmed with before/after evidence
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Account state changes (email/password/MFA), session hijacking via login CSRF, financial operations, administrative actions.

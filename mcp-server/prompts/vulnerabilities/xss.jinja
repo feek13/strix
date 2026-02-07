@@ -146,13 +146,29 @@ URL: {% raw %}javascript:alert(1){% endraw %}
 2. Demonstrate cross-browser execution where relevant or explain parser-specific behavior.
 3. Show bypass of stated defenses (sanitizer settings, CSP/Trusted Types) with proof.
 4. Quantify impact beyond alert: data accessed, action performed, persistence achieved.
+5. MANDATORY NEGATIVE TEST: Submit the same input with HTML entities pre-encoded (e.g., &lt;script&gt;) and confirm the application renders them as text, not as executable markup.
+6. MANDATORY FALSE POSITIVE CHECK: Verify that the payload actually executes in the browser DOM (not just reflected in the response body). Inspect whether CSP, Trusted Types, or framework auto-escaping blocks execution despite payload presence in the response.
+7. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the PoC executes JavaScript in a real browser context, the negative test shows proper encoding blocks execution, and the payload survives any sanitizer in place. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
 - Reflected content safely encoded in the exact context
 - CSP with nonces/hashes and no inline/event handlers; Trusted Types enforced on sinks; DOMPurify in strict mode with URI allowlists
 - Scriptable contexts disabled (no HTML pass-through, safe URL schemes enforced)
+- Payload appears in response body but CSP blocks execution (check browser console for CSP violation reports)
+- Framework auto-escaping (React JSX, Vue templates, Angular sanitizer) encodes the payload even though raw HTML appears in the source
+- Self-XSS that requires the victim to paste code into their own browser console (not a vulnerability)
+- Reflected input in non-executable contexts such as HTML comments, hidden inputs, or meta tags with no path to execution
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates JavaScript execution in a victim's browser context (not just payload reflection in the response body)
+2. The negative test confirms this is not normal application behavior (encoded input is rendered as text, not as markup)
+3. At least one false positive explanation has been explicitly ruled out (e.g., CSP is not blocking, auto-escaping is not active on this sink)
+4. The impact is real and demonstrated (not theoretical) - cookie access, DOM manipulation, or fetch to external domain confirmed
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <pro_tips>
 1. Start with context classification, not payload brute force.

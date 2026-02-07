@@ -125,6 +125,9 @@ Example: push graphic-context\nfill 'url(https://x.tld/a"|id>/tmp/o")'\npop grap
 3. Demonstrate persistence or file write under application constraints.
 4. If containerized, prove boundary crossing attempts (host files, kube APIs) and whether they succeed.
 5. Keep PoCs minimal and reproducible across runs and transports.
+6. MANDATORY NEGATIVE TEST: Submit benign input that does not contain command/code syntax (e.g., a normal alphanumeric string) through the same parameter and confirm the application processes it without executing anything -- proving the execution is caused by the injected payload, not normal application behavior.
+7. MANDATORY FALSE POSITIVE CHECK: Verify that the observed output (timing, OAST callback, response content) is definitively caused by your injected command and not by application-level processing, scheduled tasks, health checks, or coincidental network activity.
+8. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the PoC produces controlled, deterministic output from the injected command (e.g., unique OAST token, specific command output), the negative test shows normal input does not trigger execution, and the behavior is reproducible. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
@@ -132,7 +135,20 @@ Example: push graphic-context\nfill 'url(https://x.tld/a"|id>/tmp/o")'\npop grap
 - Filtered execution of a limited command subset with no attacker-controlled args
 - Sandboxed interpreters executing in a restricted VM with no IO or process spawn
 - Simulated outputs not derived from executed commands
+- Timing delays caused by server load, network latency, or application processing rather than injected sleep/delay commands
+- OAST callbacks triggered by application health checks, monitoring, or DNS prefetching rather than injected commands
+- Template rendering that evaluates expressions (e.g., math) but does not provide access to code execution primitives (no OS access, no file I/O)
+- Error messages that include the injected payload verbatim but do not indicate actual execution (reflection vs execution)
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates controlled code execution with deterministic output (unique OAST token, specific command output like whoami/id, or written file with known content)
+2. The negative test confirms this is not normal application behavior (benign input through the same parameter does not trigger execution)
+3. At least one false positive explanation has been explicitly ruled out (e.g., timing is from injected sleep not server load, OAST callback correlates to the exact request, output matches injected command)
+4. The impact is real and demonstrated (not theoretical) - actual command execution on the server with proof of controlled output
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Remote system control under application user; potential privilege escalation to root
