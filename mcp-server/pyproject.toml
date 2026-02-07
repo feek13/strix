@@ -1,6 +1,6 @@
 [project]
 name = "strix-sandbox"
-version = "0.2.0"
+version = "0.3.0"
 description = "Sandboxed security testing MCP server for Claude Code"
 readme = "README.md"
 license = { text = "MIT" }

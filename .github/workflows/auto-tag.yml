@@ -1,0 +1,99 @@
+name: Auto Tag on Version Change
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mcp-server/pyproject.toml'
+      - 'plugin/.claude-plugin/plugin.json'
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-tag:
+    name: Detect Version Changes & Create Tags
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for tag comparison
+
+      - name: Check MCP Server version
+        id: mcp
+        run: |
+          VERSION=$(python -c "
+          import re
+          with open('mcp-server/pyproject.toml') as f:
+              for line in f:
+                  m = re.match(r'^version\s*=\s*\"(.+?)\"', line)
+                  if m:
+                      print(m.group(1))
+                      break
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse "mcp-v${VERSION}" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+            echo "MCP tag mcp-v${VERSION} already exists"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+            echo "New MCP version detected: ${VERSION}"
+          fi
+
+      - name: Check Plugin version
+        id: plugin
+        run: |
+          VERSION=$(python -c "
+          import json
+          with open('plugin/.claude-plugin/plugin.json') as f:
+              print(json.load(f)['version'])
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse "plugin-v${VERSION}" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+            echo "Plugin tag plugin-v${VERSION} already exists"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+            echo "New Plugin version detected: ${VERSION}"
+          fi
+
+      - name: Create MCP tag
+        if: steps.mcp.outputs.tag_exists == 'false'
+        env:
+          MCP_VERSION: ${{ steps.mcp.outputs.version }}
+        run: |
+          git tag "mcp-v${MCP_VERSION}"
+          git push origin "mcp-v${MCP_VERSION}"
+          echo "Created and pushed tag: mcp-v${MCP_VERSION}"
+
+      - name: Create Plugin tag
+        if: steps.plugin.outputs.tag_exists == 'false'
+        env:
+          PLUGIN_VERSION: ${{ steps.plugin.outputs.version }}
+        run: |
+          git tag "plugin-v${PLUGIN_VERSION}"
+          git push origin "plugin-v${PLUGIN_VERSION}"
+          echo "Created and pushed tag: plugin-v${PLUGIN_VERSION}"
+
+      - name: Summary
+        env:
+          MCP_EXISTS: ${{ steps.mcp.outputs.tag_exists }}
+          MCP_VERSION: ${{ steps.mcp.outputs.version }}
+          PLUGIN_EXISTS: ${{ steps.plugin.outputs.tag_exists }}
+          PLUGIN_VERSION: ${{ steps.plugin.outputs.version }}
+        run: |
+          echo "## Auto-Tag Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$MCP_EXISTS" = "false" ]; then
+            echo "- Created **mcp-v${MCP_VERSION}** - release workflow triggered" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- MCP v${MCP_VERSION} - tag already exists, skipped" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$PLUGIN_EXISTS" = "false" ]; then
+            echo "- Created **plugin-v${PLUGIN_VERSION}** - release workflow triggered" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Plugin v${PLUGIN_VERSION} - tag already exists, skipped" >> "$GITHUB_STEP_SUMMARY"
+          fi
