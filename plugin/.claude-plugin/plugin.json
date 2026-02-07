@@ -1,6 +1,6 @@
 {
   "name": "strix-security",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "AI-powered security testing framework with 8 specialized skills for vulnerability assessment",
   "author": "Strix Team",
   "repository": "https://github.com/usestrix/strix",
