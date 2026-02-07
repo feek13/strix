@@ -118,6 +118,9 @@
 3. Retrieve or modify a non-trivial target (table rows, role flag) within legal scope.
 4. Provide reproducible requests that differ only in the injected fragment.
 5. Where applicable, demonstrate defense-in-depth bypass (WAF on, still exploitable via variant).
+6. MANDATORY NEGATIVE TEST: Submit the same parameter with a properly escaped/parameterized value (e.g., literal single quote in a quoted string) and confirm the application handles it safely without SQL interpretation.
+7. MANDATORY FALSE POSITIVE CHECK: Verify that any observed error, timing difference, or response variation is caused by SQL injection and not by application-level input validation, WAF blocking, or normal query behavior (e.g., no results found).
+8. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the PoC is reproducible across multiple runs, the negative test passed (safe input behaves differently from injected input), and extracted data is verifiably from the database. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
@@ -125,7 +128,20 @@
 - Static response sizes due to templating rather than predicate truth
 - Artificial delays from network/CPU unrelated to injected function calls
 - Parameterized queries with no string concatenation, verified by code review
+- WAF or input validation rejecting the payload (blocked request is not a vulnerability)
+- Application-level error handling that returns different messages for invalid input regardless of SQL context
+- Time-based false positives caused by server load, garbage collection, or network latency rather than injected SLEEP/WAITFOR
+- Boolean-based false positives where response differences are caused by application logic (e.g., search returning no results) rather than SQL predicate manipulation
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates actual SQL injection by extracting database metadata (version, user, database name) or toggling a boolean predicate with verifiable response differences
+2. The negative test confirms this is not normal application behavior (e.g., a non-SQL input does not produce the same error/timing pattern)
+3. At least one false positive explanation has been explicitly ruled out (e.g., timing confirmed with multiple runs, error confirmed as SQL parser error not input validation)
+4. The impact is real and demonstrated (not theoretical) - actual data extraction, auth bypass, or controlled query manipulation
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Direct data exfiltration and privacy/regulatory exposure

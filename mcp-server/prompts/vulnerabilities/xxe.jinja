@@ -151,6 +151,9 @@ evil.dtd:
 3. Confirm blind channels with OAST and correlate to the triggering request.
 4. Show cross-channel consistency (e.g., same behavior in upload and SOAP paths).
 5. Bound impact: exact files/data reached or internal targets proven.
+6. MANDATORY NEGATIVE TEST: Submit well-formed XML without DOCTYPE/entity declarations through the same endpoint and confirm it processes normally -- proving the parser is accepting and resolving external entities, not just accepting XML input.
+7. MANDATORY FALSE POSITIVE CHECK: Verify that the entity content is actually resolved and returned (file content, OAST callback, or error with file path) and not merely echoed as literal entity text or silently dropped by the parser.
+8. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the PoC retrieves actual file content or triggers a verifiable OAST callback from entity resolution, the negative test shows the parser processes normal XML without entity resolution, and the behavior is reproducible. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
@@ -158,7 +161,19 @@ evil.dtd:
 - Filters or sandboxes that emit entity strings literally (no IO performed)
 - Mocks/stubs that simulate success without network/file access
 - XML processed only client-side (no server parse)
+- Parser accepts DOCTYPE declaration but has external entity resolution disabled (entity references return empty or error without accessing the filesystem/network)
+- Error messages that mention the entity name but do not contain file content or trigger network requests
+- XML validation errors that reject the payload entirely (the parser caught and blocked the malicious input)
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates actual entity resolution resulting in file content disclosure, OAST callback, or SSRF to an internal service (not just DOCTYPE acceptance or entity declaration parsing)
+2. The negative test confirms this is not normal application behavior (well-formed XML without entities processes normally; entities are specifically resolved)
+3. At least one false positive explanation has been explicitly ruled out (e.g., entities are resolved not echoed literally, the parser does not block the payload, the request is server-side not client-side)
+4. The impact is real and demonstrated (not theoretical) - actual file content retrieved, internal service accessed, or OAST callback received with correlation to the specific request
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Disclosure of credentials/keys/configs, code, and environment secrets

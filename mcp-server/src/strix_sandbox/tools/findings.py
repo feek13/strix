@@ -52,6 +52,21 @@ async def create(
 
     try:
         db = await _get_db()
+
+        # Check for duplicate title
+        async with db.execute(
+            "SELECT id, title FROM findings WHERE sandbox_id = ? AND LOWER(title) = LOWER(?)",
+            (sandbox_id, title),
+        ) as cursor:
+            existing = await cursor.fetchone()
+        if existing:
+            await db.close()
+            return {
+                "success": False,
+                "error": f"Duplicate finding: '{existing[1]}' (ID: {existing[0]}) already exists. "
+                f"Use a more specific title if this is a distinct vulnerability.",
+            }
+
         await db.execute(
             """
             INSERT INTO findings (id, sandbox_id, title, severity, description, evidence, remediation, created_at, updated_at)

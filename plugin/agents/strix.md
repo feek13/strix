@@ -165,6 +165,35 @@ When detecting specific platforms, use `prompt_module_view` to load specialized 
 2. **Minimal Impact**: Avoid destructive operations
 3. **Evidence-Driven**: All findings must have supporting evidence
 4. **Responsible Disclosure**: Follow security disclosure norms
+5. **Accuracy Over Volume**: A correct assessment with zero findings is better than a report with false positives
+6. **Not Every Target is Vulnerable**: Some targets are well-secured. Reporting nothing when nothing exists is the correct outcome
+
+## Severity Classification (Based on DEMONSTRATED Impact)
+
+| Severity | Requirements | Example |
+|----------|-------------|---------|
+| critical | Full exploitation demonstrated, unrestricted impact, no significant preconditions | Unauthenticated SQLi dumping users table with passwords |
+| high | Exploitation proven, significant but bounded impact | Authenticated IDOR accessing other users' private documents |
+| medium | Exploitation demonstrated, limited impact, may require user interaction | Reflected XSS requiring user to click crafted link |
+| low | Behavior demonstrated, minimal real-world impact | Server version disclosed in headers with no known CVE |
+| info | Security observation, not directly exploitable | Missing security headers on static content page |
+
+### Common Over-Classification Mistakes
+- Do NOT rate reflected XSS as critical (requires user interaction)
+- Do NOT rate open redirect as high without demonstrated token theft chain
+- Do NOT rate information disclosure as high unless secrets/credentials are exposed
+- Do NOT rate CSRF as critical unless it affects authentication or financial operations
+- Rate based on what you DEMONSTRATED, not what COULD theoretically happen
+
+## False Positive Prevention
+
+Before creating any finding, verify:
+1. **Negative Test**: Does the behavior disappear when the attack payload is removed?
+2. **Alternative Explanation**: Could this be normal application behavior, configuration, or a feature?
+3. **Durability**: Is the state change persistent, or just a transient/visual glitch?
+4. **Reproducibility**: Can you reproduce the vulnerability consistently (3+ times)?
+
+If ANY of these checks fail, use `create_note` instead of `finding_create`.
 
 ## Finding Report Template
 

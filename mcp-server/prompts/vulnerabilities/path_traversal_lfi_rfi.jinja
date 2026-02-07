@@ -114,6 +114,9 @@
 3. For RFI, prove remote fetch by OAST or controlled output; avoid destructive payloads.
 4. For Zip Slip, create an archive with ../ entries and show write outside target (e.g., marker file read back).
 5. Provide before/after file paths, exact requests, and content hashes/lengths for reproducibility.
+6. MANDATORY NEGATIVE TEST: Request a legitimate file within the intended directory (e.g., an existing allowed resource) and confirm it is served correctly -- then show that the traversal payload accesses a file outside the root that should not be reachable.
+7. MANDATORY FALSE POSITIVE CHECK: Verify that the response actually contains the content of the traversed file (e.g., /etc/passwd format, known win.ini content) and is not a generic error page, a default response, or application-generated content that resembles a system file.
+8. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the response contains verifiable content from a file outside the intended root, the negative test shows in-root files are served normally, and the traversal path is clearly escaping the application's file boundary. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
@@ -121,7 +124,19 @@
 - Canonicalized paths constrained to an allowlist/root after normalization
 - Wrappers disabled and includes using constant templates only
 - Archive extractors that sanitize paths and enforce destination directories
+- Application returning a 404 or generic error for traversal attempts (path validation is working correctly)
+- Response containing path-like strings in error messages without actual file content disclosure (error reflection vs file read)
+- Traversal payload stripped or normalized by a reverse proxy/WAF before reaching the application (the attack is blocked)
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates actual file content from outside the intended root directory (verifiable content like /etc/passwd entries, win.ini sections, or application source code)
+2. The negative test confirms this is not normal application behavior (in-root file access works correctly; only traversal paths escape the boundary)
+3. At least one false positive explanation has been explicitly ruled out (e.g., response contains actual file content not error messages, the path is not normalized/blocked by WAF, the content is from the filesystem not a database)
+4. The impact is real and demonstrated (not theoretical) - sensitive file content retrieved, credentials exposed, or inclusion/execution achieved
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Sensitive configuration/source disclosure → credential and key compromise

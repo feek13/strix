@@ -119,13 +119,29 @@ mutation Promote($id:ID!){
 2. Provide evidence across at least two transports or encodings demonstrating inconsistent enforcement.
 3. Demonstrate that removing/altering client-side gates (buttons/flags) does not affect backend success.
 4. Include durable state change proof: before/after snapshots, audit logs, and authoritative sources.
+5. MANDATORY NEGATIVE TEST: Confirm that a properly authorized principal (admin/staff) can perform the action successfully, and that an unauthenticated or clearly unauthorized principal is rejected -- proving the specific lower-privileged role is incorrectly granted access.
+6. MANDATORY FALSE POSITIVE CHECK: Verify the endpoint is actually restricted and not intentionally public/open-to-all-roles. Check documentation, UI role labeling, and whether the action produces a real state change or is read-only/informational.
+7. CONFIDENCE ASSESSMENT: State "CONFIRMED" only if the lower-privileged principal successfully performs a restricted action with a durable state change, the negative test shows the action is intended to be restricted (unauth users are rejected), and the endpoint is not documented as publicly accessible. Otherwise use create_note instead of finding_create.
 </validation>
 
 <false_positives>
 - Read-only endpoints mislabeled as admin but publicly documented
 - Feature toggles intentionally open to all roles for preview/beta with clear policy
 - Simulated environments where admin endpoints are stubbed with no side effects
+- Endpoints that return 200 but with empty/filtered response bodies (authorization enforced at the data level, not the endpoint level)
+- Actions that appear privileged in the UI but are intentionally available to all authenticated users (e.g., self-service account management)
+- Legacy endpoints that are deprecated and return success responses but do not actually perform any state changes
+- Rate-limited or audit-logged endpoints where the action is allowed but monitored (intentional design decision)
 </false_positives>
+
+<reporting_gate>
+DO NOT create a finding (finding_create) unless ALL of the following are true:
+1. The PoC demonstrates a lower-privileged principal successfully performing a restricted action that produces a durable, observable state change (role flip, data modification, resource creation/deletion)
+2. The negative test confirms this is not normal application behavior (unauthenticated users are rejected, and the action is intended to be role-restricted based on documentation or UI evidence)
+3. At least one false positive explanation has been explicitly ruled out (e.g., the endpoint is not intentionally public, the response contains actual data not filtered/empty, the action produces real side effects not stubs)
+4. The impact is real and demonstrated (not theoretical) - actual privilege escalation, unauthorized state change, or access to restricted functionality confirmed with before/after evidence
+If ANY condition is not met, use create_note for further investigation, NOT finding_create.
+</reporting_gate>
 
 <impact>
 - Privilege escalation to admin/staff actions
