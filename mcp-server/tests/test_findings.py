@@ -46,6 +46,16 @@ class TestFindingCreate:
     @pytest.mark.asyncio
     async def test_create_finding_minimal(self, mock_sandbox_id: str) -> None:
         """Test creating finding with minimal fields."""
+        description = (
+            "## Affected URL\nhttps://example.com/search?q=test\n\n"
+            "## Proof of Concept\n"
+            "GET /search?q=<script>alert(1)</script> returns reflected payload in response body.\n\n"
+            "## Impact\nReflected XSS allows execution of arbitrary JavaScript in victim's browser.\n\n"
+            "## Steps to Reproduce\n"
+            "1. Navigate to /search\n"
+            "2. Inject <script>alert(1)</script> in q parameter\n"
+            "3. Observe script execution in response\n"
+        )
         with patch("strix_sandbox.tools.findings.create") as mock_create:
             mock_create.return_value = {
                 "finding_id": "finding-002",
@@ -57,7 +67,7 @@ class TestFindingCreate:
             await finding_create(
                 title="XSS Vulnerability",
                 severity="medium",
-                description="Reflected XSS in search parameter",
+                description=description,
                 sandbox_id=mock_sandbox_id,
             )
 
@@ -65,7 +75,7 @@ class TestFindingCreate:
                 mock_sandbox_id,
                 "XSS Vulnerability",
                 "medium",
-                "Reflected XSS in search parameter",
+                description,
                 "",
                 "",
             )
@@ -74,6 +84,17 @@ class TestFindingCreate:
     @pytest.mark.asyncio
     async def test_create_critical_finding(self, mock_sandbox_id: str) -> None:
         """Test creating a critical severity finding."""
+        description = (
+            "## Affected URL\nhttps://target.com/api/deserialize\n\n"
+            "## Proof of Concept\n"
+            "POST /api/deserialize with crafted Java serialization payload triggers command execution.\n"
+            "Response includes output of `id` command: uid=0(root).\n\n"
+            "## Impact\nUnauthenticated remote code execution with root privileges on the server.\n\n"
+            "## Steps to Reproduce\n"
+            "1. Craft a malicious Java deserialization payload using ysoserial\n"
+            "2. POST the payload to /api/deserialize\n"
+            "3. Observe command execution in response\n"
+        )
         with patch("strix_sandbox.tools.findings.create") as mock_create:
             mock_create.return_value = {"finding_id": "finding-003"}
 
@@ -82,7 +103,7 @@ class TestFindingCreate:
             await finding_create(
                 title="Remote Code Execution",
                 severity="critical",
-                description="Unauthenticated RCE via deserialization",
+                description=description,
                 evidence="curl -X POST -d 'payload' http://target/api",
                 sandbox_id=mock_sandbox_id,
             )
