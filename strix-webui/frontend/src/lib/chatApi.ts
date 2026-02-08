@@ -1,0 +1,59 @@
+import { getUserId } from "./userId";
+import type { ChatSession, ChatMessageRecord } from "@shared/index";
+
+const headers = () => ({
+  "Content-Type": "application/json",
+  "X-Strix-User-Id": getUserId(),
+});
+
+export async function listSessions(): Promise<ChatSession[]> {
+  const res = await fetch("/api/chat/sessions", { headers: headers() });
+  if (!res.ok) throw new Error("Failed to list sessions");
+  return res.json();
+}
+
+export async function createSession(scanId?: string, title?: string): Promise<ChatSession> {
+  const res = await fetch("/api/chat/sessions", {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ scanId, title }),
+  });
+  if (!res.ok) throw new Error("Failed to create session");
+  return res.json();
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  const res = await fetch(`/api/chat/sessions/${id}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!res.ok) throw new Error("Failed to delete session");
+}
+
+export async function updateSessionTitle(id: string, title: string): Promise<void> {
+  const res = await fetch(`/api/chat/sessions/${id}`, {
+    method: "PATCH",
+    headers: headers(),
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error("Failed to update session title");
+}
+
+export async function getMessages(sessionId: string): Promise<ChatMessageRecord[]> {
+  const res = await fetch(`/api/chat/sessions/${sessionId}/messages`, { headers: headers() });
+  if (!res.ok) throw new Error("Failed to get messages");
+  return res.json();
+}
+
+export async function saveMessage(
+  sessionId: string,
+  msg: { role: string; content: string; isExecute?: boolean; blocks?: string },
+): Promise<ChatMessageRecord> {
+  const res = await fetch(`/api/chat/sessions/${sessionId}/messages`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(msg),
+  });
+  if (!res.ok) throw new Error("Failed to save message");
+  return res.json();
+}

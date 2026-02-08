@@ -234,3 +234,24 @@ export const SKILL_CATEGORIES = [
   { id: "platform", label: "Platform Testing", icon: "server", skill: "platform-testing" },
   { id: "redteam", label: "Red Team Ops", icon: "target", skill: "red-team-operations" },
 ];
+
+// ==================== Chat Sessions ====================
+
+export interface ChatSession {
+  id: string;
+  userId: string;
+  scanId: string | null;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessageRecord {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant";
+  content: string;
+  isExecute?: boolean;
+  blocks?: string; // JSON-serialized StreamBlock[]
+  createdAt: string;
+}

@@ -4,17 +4,21 @@ import Dashboard from "./pages/Dashboard";
 import LiveScan from "./pages/LiveScan";
 import ScanHistory from "./pages/ScanHistory";
 import Reports from "./pages/Reports";
+import ReportPreview from "./pages/ReportPreview";
 import Settings from "./pages/Settings";
 import ToolCategory from "./pages/ToolCategory";
 import Findings from "./pages/Findings";
+import AskAI from "./pages/AskAI";
 
 export default function App() {
   return (
     <Routes>
       <Route element={<MainLayout />}>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/ask" element={<AskAI />} />
         <Route path="/scan" element={<LiveScan />} />
         <Route path="/scan/:id" element={<LiveScan />} />
+        <Route path="/scan/:id/report" element={<ReportPreview />} />
         <Route path="/history" element={<ScanHistory />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/findings" element={<Findings />} />

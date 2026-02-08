@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { join } from "path";
 import { homedir } from "os";
 import { mkdirSync } from "fs";
-import type { Scan, Agent, ToolExecution, Vulnerability, LogEntry } from "@strix-webui/shared";
+import type { Scan, Agent, ToolExecution, Vulnerability, LogEntry, ChatSession, ChatMessageRecord } from "@strix-webui/shared";
 
 const DATA_DIR = join(homedir(), ".strix-webui");
 mkdirSync(DATA_DIR, { recursive: true });
@@ -83,6 +83,29 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tools_scan ON tool_executions(scan_id);
   CREATE INDEX IF NOT EXISTS idx_vulns_scan ON vulnerabilities(scan_id);
   CREATE INDEX IF NOT EXISTS idx_logs_scan ON logs(scan_id);
+
+  CREATE TABLE IF NOT EXISTS chat_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    scan_id TEXT,
+    title TEXT NOT NULL DEFAULT 'New Chat',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    is_execute INTEGER NOT NULL DEFAULT 0,
+    blocks TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id);
+  CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
 `);
 
 const stmts = {
@@ -110,6 +133,17 @@ const stmts = {
   insertLog: db.prepare(`INSERT INTO logs (id, scan_id, agent_id, level, message, tool_name, timestamp, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
   getLogsByScan: db.prepare(`SELECT * FROM logs WHERE scan_id = ? ORDER BY timestamp`),
   getRecentLogs: db.prepare(`SELECT * FROM logs WHERE scan_id = ? ORDER BY timestamp DESC LIMIT ?`),
+
+  insertChatSession: db.prepare(`INSERT INTO chat_sessions (id, user_id, scan_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`),
+  getChatSession: db.prepare(`SELECT * FROM chat_sessions WHERE id = ? AND user_id = ?`),
+  getChatSessionsByUser: db.prepare(`SELECT * FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC`),
+  updateChatSessionTitle: db.prepare(`UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?`),
+  updateChatSessionTimestamp: db.prepare(`UPDATE chat_sessions SET updated_at = ? WHERE id = ?`),
+  deleteChatSession: db.prepare(`DELETE FROM chat_sessions WHERE id = ? AND user_id = ?`),
+  deleteChatMessages: db.prepare(`DELETE FROM chat_messages WHERE session_id = ?`),
+
+  insertChatMessage: db.prepare(`INSERT INTO chat_messages (id, session_id, role, content, is_execute, blocks, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`),
+  getChatMessages: db.prepare(`SELECT cm.* FROM chat_messages cm JOIN chat_sessions cs ON cm.session_id = cs.id WHERE cm.session_id = ? AND cs.user_id = ? ORDER BY cm.created_at`),
 };
 
 function rowToScan(row: Record<string, unknown>): Scan {
@@ -183,6 +217,29 @@ function rowToLog(row: Record<string, unknown>): LogEntry {
     toolName: row.tool_name as string | undefined,
     timestamp: row.timestamp as string,
     details: row.details ? JSON.parse(row.details as string) : undefined,
+  };
+}
+
+function rowToChatSession(row: Record<string, unknown>): ChatSession {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    scanId: row.scan_id as string | null,
+    title: row.title as string,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+function rowToChatMessage(row: Record<string, unknown>): ChatMessageRecord {
+  return {
+    id: row.id as string,
+    sessionId: row.session_id as string,
+    role: row.role as "user" | "assistant",
+    content: row.content as string,
+    isExecute: (row.is_execute as number) === 1 ? true : undefined,
+    blocks: row.blocks as string | undefined,
+    createdAt: row.created_at as string,
   };
 }
 
@@ -268,5 +325,31 @@ export const store = {
 
   clearAll(): void {
     db.exec("DELETE FROM logs; DELETE FROM vulnerabilities; DELETE FROM tool_executions; DELETE FROM agents; DELETE FROM scans;");
+  },
+
+  // Chat sessions
+  createChatSession(session: ChatSession): void {
+    stmts.insertChatSession.run(session.id, session.userId, session.scanId, session.title, session.createdAt, session.updatedAt);
+  },
+  getChatSession(id: string, userId: string): ChatSession | undefined {
+    const row = stmts.getChatSession.get(id, userId) as Record<string, unknown> | undefined;
+    return row ? rowToChatSession(row) : undefined;
+  },
+  getChatSessionsByUser(userId: string): ChatSession[] {
+    return (stmts.getChatSessionsByUser.all(userId) as Record<string, unknown>[]).map(rowToChatSession);
+  },
+  updateChatSessionTitle(id: string, userId: string, title: string): void {
+    stmts.updateChatSessionTitle.run(title, new Date().toISOString(), id, userId);
+  },
+  deleteChatSession(id: string, userId: string): void {
+    stmts.deleteChatMessages.run(id);
+    stmts.deleteChatSession.run(id, userId);
+  },
+  addChatMessage(message: ChatMessageRecord): void {
+    stmts.insertChatMessage.run(message.id, message.sessionId, message.role, message.content, message.isExecute ? 1 : 0, message.blocks || null, message.createdAt);
+    stmts.updateChatSessionTimestamp.run(message.createdAt, message.sessionId);
+  },
+  getChatMessages(sessionId: string, userId: string): ChatMessageRecord[] {
+    return (stmts.getChatMessages.all(sessionId, userId) as Record<string, unknown>[]).map(rowToChatMessage);
   },
 };

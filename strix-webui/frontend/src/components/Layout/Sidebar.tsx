@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Radio, History, FileText, Settings,
   Search, Syringe, Lock, Workflow, Server, Target,
   Globe, Network, Terminal, Code, FileEdit,
-  ShieldAlert, StickyNote, Brain, Box, Users,
+  ShieldAlert, StickyNote, Brain, Box, Users, Bot,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -24,6 +24,7 @@ interface NavItem {
 const mainNav: NavItem[] = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
   { path: "/scan", label: "Active Scan", icon: Radio },
+  { path: "/ask", label: "Ask AI", icon: Bot },
 ];
 
 const testingNav: NavItem[] = [

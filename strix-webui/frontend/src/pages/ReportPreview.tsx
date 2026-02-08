@@ -1,0 +1,1071 @@
+import { useState, useEffect, useRef, useCallback, memo, type ComponentPropsWithoutRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import clsx from "clsx";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import {
+  ArrowLeft, Download, MessageSquare, Send, X, Loader2,
+  ShieldAlert, Clock, Bot, Wrench, AlertTriangle, Zap,
+  ChevronRight, Check, XCircle, Terminal, Plus, Trash2,
+} from "lucide-react";
+import type { Scan, Vulnerability, Agent, ToolExecution, ChatSession } from "../types";
+import * as chatApi from "../lib/chatApi";
+import { getUserId } from "../lib/userId";
+
+interface ScanDetail {
+  scan: Scan;
+  agents: Agent[];
+  tools: ToolExecution[];
+  vulnerabilities: Vulnerability[];
+}
+
+interface ToolBlock {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  status: "running" | "done" | "error";
+  result?: string;
+}
+
+interface StreamBlock {
+  type: "text" | "tool";
+  text?: string;
+  tool?: ToolBlock;
+}
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  isExecute?: boolean;
+  blocks?: StreamBlock[];
+}
+
+/** Markdown renderer styled for the chat panel */
+const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children }) => <h3 className="text-sm font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h2: ({ children }) => <h3 className="text-sm font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h3: ({ children }) => <h4 className="text-xs font-bold text-white mt-2.5 mb-1 first:mt-0">{children}</h4>,
+        h4: ({ children }) => <h4 className="text-xs font-semibold text-strix-text-secondary mt-2 mb-1 first:mt-0">{children}</h4>,
+        p: ({ children }) => <p className="text-xs text-strix-text-secondary mb-2 last:mb-0 leading-relaxed">{children}</p>,
+        strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+        em: ({ children }) => <em className="text-strix-text-secondary italic">{children}</em>,
+        ul: ({ children }) => <ul className="text-xs text-strix-text-secondary mb-2 ml-3 space-y-0.5 list-disc">{children}</ul>,
+        ol: ({ children }) => <ol className="text-xs text-strix-text-secondary mb-2 ml-3 space-y-0.5 list-decimal">{children}</ol>,
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        code: ({ className, children, ...props }: ComponentPropsWithoutRef<"code"> & { inline?: boolean }) => {
+          const isBlock = className?.includes("language-");
+          if (isBlock) {
+            return (
+              <pre className="bg-strix-bg border border-strix-border-subtle rounded p-2 my-1.5 overflow-x-auto">
+                <code className="text-[11px] font-mono text-strix-accent leading-relaxed">{children}</code>
+              </pre>
+            );
+          }
+          return <code className="text-[11px] font-mono bg-strix-bg text-strix-accent px-1 py-0.5 rounded" {...props}>{children}</code>;
+        },
+        pre: ({ children }) => <>{children}</>,
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-2 border-strix-accent/40 pl-2.5 my-1.5 text-xs text-strix-text-muted italic">{children}</blockquote>
+        ),
+        hr: () => <hr className="border-strix-border-subtle my-2" />,
+        a: ({ href, children }) => (
+          <a href={href} target="_blank" rel="noopener noreferrer" className="text-strix-accent hover:underline">{children}</a>
+        ),
+        table: ({ children }) => (
+          <div className="overflow-x-auto my-2">
+            <table className="text-[11px] w-full border-collapse">{children}</table>
+          </div>
+        ),
+        thead: ({ children }) => <thead className="border-b border-strix-border-subtle">{children}</thead>,
+        th: ({ children }) => <th className="text-left px-2 py-1 text-strix-text-secondary font-semibold">{children}</th>,
+        td: ({ children }) => <td className="px-2 py-1 text-strix-text-muted border-t border-strix-border-subtle/50">{children}</td>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+});
+
+/** Markdown renderer styled for the report vulnerability cards */
+const ReportMarkdown = memo(function ReportMarkdown({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children }) => <h3 className="text-base font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h2: ({ children }) => <h3 className="text-sm font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h3: ({ children }) => <h4 className="text-sm font-semibold text-white mt-2.5 mb-1 first:mt-0">{children}</h4>,
+        h4: ({ children }) => <h4 className="text-sm font-medium text-strix-text-secondary mt-2 mb-1 first:mt-0">{children}</h4>,
+        p: ({ children }) => <p className="text-sm text-strix-text-secondary mb-2 last:mb-0 leading-relaxed">{children}</p>,
+        strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+        em: ({ children }) => <em className="text-strix-text-secondary italic">{children}</em>,
+        ul: ({ children }) => <ul className="text-sm text-strix-text-secondary mb-2 ml-4 space-y-1 list-disc">{children}</ul>,
+        ol: ({ children }) => <ol className="text-sm text-strix-text-secondary mb-2 ml-4 space-y-1 list-decimal">{children}</ol>,
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        code: ({ className, children, ...props }: ComponentPropsWithoutRef<"code"> & { inline?: boolean }) => {
+          const isBlock = className?.includes("language-");
+          if (isBlock) {
+            return (
+              <pre className="bg-strix-bg border border-strix-border-subtle rounded-md p-3 my-2 overflow-x-auto">
+                <code className="text-xs font-mono text-strix-accent leading-relaxed break-all">{children}</code>
+              </pre>
+            );
+          }
+          return <code className="text-xs font-mono bg-strix-bg text-strix-accent px-1.5 py-0.5 rounded break-all" {...props}>{children}</code>;
+        },
+        pre: ({ children }) => <>{children}</>,
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-2 border-strix-accent/40 pl-3 my-2 text-sm text-strix-text-muted italic">{children}</blockquote>
+        ),
+        hr: () => <hr className="border-strix-border-subtle my-3" />,
+        a: ({ href, children }) => (
+          <a href={href} target="_blank" rel="noopener noreferrer" className="text-strix-accent hover:underline break-all">{children}</a>
+        ),
+        table: ({ children }) => (
+          <div className="overflow-x-auto my-2 rounded border border-strix-border-subtle">
+            <table className="text-xs w-full border-collapse">{children}</table>
+          </div>
+        ),
+        thead: ({ children }) => <thead className="bg-strix-bg">{children}</thead>,
+        th: ({ children }) => <th className="text-left px-3 py-1.5 text-strix-text-secondary font-semibold border-b border-strix-border-subtle">{children}</th>,
+        td: ({ children }) => <td className="px-3 py-1.5 text-strix-text-muted border-t border-strix-border-subtle/50 break-all">{children}</td>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+});
+
+const SEV_COLORS: Record<string, string> = {
+  critical: "text-severity-critical",
+  high: "text-severity-high",
+  medium: "text-severity-medium",
+  low: "text-severity-low",
+  info: "text-strix-text-muted",
+};
+
+const SEV_BG: Record<string, string> = {
+  critical: "bg-severity-critical/10 border-severity-critical/30",
+  high: "bg-severity-high/10 border-severity-high/30",
+  medium: "bg-severity-medium/10 border-severity-medium/30",
+  low: "bg-severity-low/10 border-severity-low/30",
+  info: "bg-strix-elevated border-strix-border-subtle",
+};
+
+function formatDuration(ms: number): string {
+  const mins = Math.floor(ms / 60000);
+  const secs = Math.floor((ms % 60000) / 1000);
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
+
+function formatRelativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+export default function ReportPreview() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const reportRef = useRef<HTMLDivElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const [data, setData] = useState<ScanDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+
+  // AI Chat
+  const [chatOpen, setChatOpen] = useState(false);
+  const [selectedText, setSelectedText] = useState("");
+  const selectedTextRef = useRef("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
+  const [executeMode, setExecuteMode] = useState(false);
+  const [streamBlocks, setStreamBlocks] = useState<StreamBlock[]>([]);
+  const [streamPhase, setStreamPhase] = useState<"init" | "working" | "done" | null>(null);
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+
+  // Chat sessions
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [showSessionList, setShowSessionList] = useState(true);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+
+  // Selection popup — use ref to avoid re-rendering report on every selection
+  const [popup, setPopup] = useState<{ x: number; y: number } | null>(null);
+
+  // Fetch scan data
+  useEffect(() => {
+    if (!id) return;
+    fetch(`/api/scans/${id}`)
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [id]);
+
+  // Text selection handler — store text in ref (no re-render), only update popup position
+  const handleMouseUp = useCallback(() => {
+    const sel = window.getSelection();
+    const text = sel?.toString().trim();
+    if (text && text.length > 3 && reportRef.current?.contains(sel?.anchorNode || null)) {
+      const range = sel!.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      selectedTextRef.current = text;
+      setPopup({ x: rect.left + rect.width / 2, y: rect.top - 8 });
+    } else {
+      setPopup(null);
+    }
+  }, []);
+
+  // Load sessions when chat panel opens
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    try {
+      const s = await chatApi.listSessions();
+      setSessions(s);
+    } catch { /* ignore */ } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (chatOpen) loadSessions();
+  }, [chatOpen, loadSessions]);
+
+  // Load messages when session is selected
+  const loadSession = useCallback(async (sessionId: string) => {
+    try {
+      const msgs = await chatApi.getMessages(sessionId);
+      const chatMsgs: ChatMessage[] = msgs.map((m) => ({
+        role: m.role,
+        content: m.content,
+        isExecute: m.isExecute,
+        blocks: m.blocks ? JSON.parse(m.blocks) : undefined,
+      }));
+      setMessages(chatMsgs);
+      setActiveSessionId(sessionId);
+      setShowSessionList(false);
+    } catch { /* ignore */ }
+  }, []);
+
+  const createNewSession = useCallback(async () => {
+    try {
+      const session = await chatApi.createSession(id);
+      setSessions((prev) => [session, ...prev]);
+      setMessages([]);
+      setActiveSessionId(session.id);
+      setShowSessionList(false);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    } catch { /* ignore */ }
+  }, [id]);
+
+  const handleDeleteSession = useCallback(async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await chatApi.deleteSession(sessionId);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(null);
+        setMessages([]);
+        setShowSessionList(true);
+      }
+    } catch { /* ignore */ }
+  }, [activeSessionId]);
+
+  const backToSessionList = useCallback(() => {
+    setShowSessionList(true);
+    loadSessions();
+  }, [loadSessions]);
+
+  // Clear popup on click outside
+  useEffect(() => {
+    const handleDown = () => setPopup(null);
+    document.addEventListener("mousedown", handleDown);
+    return () => document.removeEventListener("mousedown", handleDown);
+  }, []);
+
+  // Auto scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, streamingText, streamBlocks]);
+
+  const openChatWithSelection = async () => {
+    setSelectedText(selectedTextRef.current);
+    setChatOpen(true);
+    setPopup(null);
+    if (!activeSessionId) {
+      await createNewSession();
+    }
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  // Toggle tool block expand/collapse
+  const toggleTool = (toolId: string) => {
+    setExpandedTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(toolId)) next.delete(toolId);
+      else next.add(toolId);
+      return next;
+    });
+  };
+
+  // Ask AI with SSE streaming
+  const handleAsk = async () => {
+    const q = question.trim();
+    if (!q || asking) return;
+
+    const isExec = executeMode;
+    const userMsg: ChatMessage = { role: "user", content: q, isExecute: isExec };
+    setMessages((prev) => [...prev, userMsg]);
+    setQuestion("");
+    setAsking(true);
+    setStreamingText("");
+    setStreamBlocks([]);
+    setStreamPhase(isExec ? "init" : null);
+
+    // Auto-create session if none active
+    let sessionId = activeSessionId;
+    if (!sessionId) {
+      try {
+        const session = await chatApi.createSession(id, q.slice(0, 50));
+        sessionId = session.id;
+        setActiveSessionId(session.id);
+        setSessions((prev) => [session, ...prev]);
+        setShowSessionList(false);
+      } catch { /* ignore */ }
+    }
+
+    // Save user message and auto-title if first message
+    if (sessionId) {
+      try {
+        await chatApi.saveMessage(sessionId, { role: "user", content: q, isExecute: isExec });
+        // Auto-title: update session title from first user message
+        const currentSession = sessions.find((s) => s.id === sessionId);
+        if (currentSession && currentSession.title === "New Chat") {
+          const title = q.slice(0, 50) + (q.length > 50 ? "..." : "");
+          await chatApi.updateSessionTitle(sessionId, title);
+          setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, title } : s));
+        }
+      } catch { /* ignore */ }
+    }
+
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scanId: id,
+          selectedText,
+          question: q,
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
+          mode: isExec ? "execute" : "ask",
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Request failed");
+      }
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullText = "";
+      const blocks: StreamBlock[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const raw = line.slice(6).trim();
+          if (raw === "[DONE]") continue;
+
+          try {
+            const evt = JSON.parse(raw);
+            if (evt.error) throw new Error(evt.error);
+
+            if (isExec && evt.type) {
+              // Structured execute mode events
+              switch (evt.type) {
+                case "init":
+                  setStreamPhase("working");
+                  break;
+
+                case "text": {
+                  const text = evt.text || "";
+                  fullText += text;
+                  // Append to last text block or create new one
+                  const last = blocks[blocks.length - 1];
+                  if (last && last.type === "text") {
+                    last.text = (last.text || "") + text;
+                  } else {
+                    blocks.push({ type: "text", text });
+                  }
+                  setStreamBlocks([...blocks]);
+                  break;
+                }
+
+                case "tool_use": {
+                  const toolBlock: ToolBlock = {
+                    id: evt.toolUseId || `tool-${Date.now()}`,
+                    name: evt.name || "unknown",
+                    input: evt.input || {},
+                    status: "running",
+                  };
+                  blocks.push({ type: "tool", tool: toolBlock });
+                  setStreamBlocks([...blocks]);
+                  break;
+                }
+
+                case "tool_result": {
+                  // Find and update matching tool block
+                  for (const block of blocks) {
+                    const t = block.tool;
+                    if (block.type === "tool" && t && t.id === evt.toolUseId) {
+                      t.status = evt.isError ? "error" : "done";
+                      t.result = evt.content || "";
+                      break;
+                    }
+                  }
+                  setStreamBlocks([...blocks]);
+                  break;
+                }
+
+                case "result":
+                  setStreamPhase("done");
+                  break;
+              }
+            } else if (evt.text) {
+              // Ask mode: plain text streaming
+              fullText += evt.text;
+              setStreamingText(fullText);
+            }
+          } catch (e) {
+            if (e instanceof Error && e.message !== "[DONE]") throw e;
+          }
+        }
+      }
+
+      const assistantMsg: ChatMessage = isExec
+        ? { role: "assistant", content: fullText, blocks: blocks.length > 0 ? [...blocks] : undefined }
+        : { role: "assistant", content: fullText };
+      setMessages((prev) => [...prev, assistantMsg]);
+      setStreamingText("");
+      setStreamBlocks([]);
+      setStreamPhase(null);
+
+      // Save assistant message to session
+      if (sessionId) {
+        try {
+          await chatApi.saveMessage(sessionId, {
+            role: "assistant",
+            content: fullText,
+            blocks: assistantMsg.blocks ? JSON.stringify(assistantMsg.blocks) : undefined,
+          });
+        } catch { /* ignore */ }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
+    } finally {
+      setAsking(false);
+      setStreamingText("");
+      setStreamBlocks([]);
+      setStreamPhase(null);
+    }
+  };
+
+  const downloadPDF = async () => {
+    if (!id) return;
+    setGenerating(true);
+    try {
+      const res = await fetch(`/api/scans/${id}/report`);
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `strix-report-${id.slice(0, 8)}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch { /* ignore */ } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="animate-spin text-strix-text-muted" size={32} />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-strix-text-muted">
+        <AlertTriangle size={32} className="mb-2" />
+        <span>Report not found</span>
+      </div>
+    );
+  }
+
+  const { scan, agents, tools, vulnerabilities } = data;
+  const sorted = [...vulnerabilities].sort((a, b) => {
+    const scores: Record<string, number> = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
+    return (scores[b.severity] || 0) - (scores[a.severity] || 0);
+  });
+
+  const sevCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+  for (const v of sorted) sevCounts[v.severity as keyof typeof sevCounts]++;
+
+  const durationMs = scan.startedAt && scan.completedAt
+    ? new Date(scan.completedAt).getTime() - new Date(scan.startedAt).getTime()
+    : null;
+
+  let risk = "Low";
+  if (sevCounts.critical > 0) risk = "Critical";
+  else if (sevCounts.high > 0) risk = "High";
+  else if (sevCounts.medium > 0) risk = "Medium";
+
+  return (
+    <div className="h-full flex flex-col animate-fade-in">
+      {/* Header */}
+      <div className="h-12 bg-strix-card border-b border-strix-border-subtle flex items-center px-4 gap-3 shrink-0">
+        <button onClick={() => navigate(-1)} className="text-strix-text-muted hover:text-white transition-colors">
+          <ArrowLeft size={18} />
+        </button>
+        <span className="text-sm font-medium truncate flex-1">{scan.target}</span>
+        <span className="text-xs text-strix-text-muted capitalize">{scan.status}</span>
+        {durationMs && <span className="text-xs text-strix-text-muted">{formatDuration(durationMs)}</span>}
+        <button
+          onClick={() => { setChatOpen(!chatOpen); }}
+          className={clsx(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-xs transition-colors",
+            chatOpen ? "bg-strix-accent text-black" : "bg-strix-elevated text-strix-text-secondary hover:text-white"
+          )}
+        >
+          <MessageSquare size={14} />
+          Ask AI
+        </button>
+        <button
+          onClick={downloadPDF}
+          disabled={generating}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-strix-elevated text-strix-text-secondary hover:text-white text-xs transition-colors disabled:opacity-50"
+        >
+          {generating ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+          PDF
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 flex min-h-0">
+        {/* Report Content */}
+        <div
+          ref={reportRef}
+          onMouseUp={handleMouseUp}
+          className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto select-text overflow-x-hidden"
+        >
+          {/* Title */}
+          <div className="text-center mb-12">
+            <div className="text-[10px] uppercase tracking-[0.3em] text-strix-text-muted mb-8">Confidential</div>
+            <h1 className="text-3xl font-bold mb-3">Security Assessment Report</h1>
+            <div className="text-strix-accent text-lg mb-6">{scan.target}</div>
+            <div className="text-xs text-strix-text-muted space-y-1">
+              <div>{new Date(scan.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</div>
+              <div>Mode: {scan.mode} | Type: {scan.targetType}</div>
+              {durationMs && <div>Duration: {formatDuration(durationMs)}</div>}
+              <div className="text-[10px] mt-4">Scan ID: {scan.id}</div>
+            </div>
+          </div>
+
+          <hr className="border-strix-border-subtle mb-8" />
+
+          {/* Executive Summary */}
+          <section className="mb-10">
+            <h2 className="text-xl font-semibold mb-4">Executive Summary</h2>
+
+            <div className="grid grid-cols-4 gap-4 mb-6">
+              <div className="bg-strix-card border border-strix-border-subtle rounded-card p-4 text-center">
+                <div className="text-2xl font-bold">{sorted.length}</div>
+                <div className="text-xs text-strix-text-muted">Findings</div>
+              </div>
+              <div className="bg-strix-card border border-strix-border-subtle rounded-card p-4 text-center">
+                <div className="text-2xl font-bold">{agents.length}</div>
+                <div className="text-xs text-strix-text-muted">Agents</div>
+              </div>
+              <div className="bg-strix-card border border-strix-border-subtle rounded-card p-4 text-center">
+                <div className="text-2xl font-bold">{tools.length}</div>
+                <div className="text-xs text-strix-text-muted">Tools</div>
+              </div>
+              <div className="bg-strix-card border border-strix-border-subtle rounded-card p-4 text-center">
+                <div className={clsx("text-2xl font-bold", SEV_COLORS[risk.toLowerCase()] || "text-strix-accent")}>
+                  {risk}
+                </div>
+                <div className="text-xs text-strix-text-muted">Risk Level</div>
+              </div>
+            </div>
+
+            {/* Severity breakdown */}
+            <div className="space-y-2">
+              {(["critical", "high", "medium", "low", "info"] as const).map((sev) => {
+                const count = sevCounts[sev];
+                return (
+                  <div key={sev} className="flex items-center gap-3">
+                    <span className={clsx("w-16 text-xs uppercase font-medium", SEV_COLORS[sev])}>{sev}</span>
+                    <div className="flex-1 h-2 bg-strix-elevated rounded-full overflow-hidden">
+                      <div
+                        className={clsx("h-full rounded-full transition-all", {
+                          "bg-severity-critical": sev === "critical",
+                          "bg-severity-high": sev === "high",
+                          "bg-severity-medium": sev === "medium",
+                          "bg-severity-low": sev === "low",
+                          "bg-strix-text-muted": sev === "info",
+                        })}
+                        style={{ width: sorted.length > 0 ? `${(count / sorted.length) * 100}%` : "0%" }}
+                      />
+                    </div>
+                    <span className="w-8 text-xs text-strix-text-secondary text-right">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <hr className="border-strix-border-subtle mb-8" />
+
+          {/* Vulnerability Details */}
+          <section className="mb-10">
+            <h2 className="text-xl font-semibold mb-4">Vulnerability Details</h2>
+
+            {sorted.length === 0 && (
+              <div className="text-sm text-strix-text-muted py-4">
+                No vulnerabilities were found during this assessment.
+              </div>
+            )}
+
+            {sorted.map((v, i) => (
+              <div key={v.id} className={clsx("border rounded-card p-5 mb-4 overflow-hidden", SEV_BG[v.severity])}>
+                <div className="flex items-start gap-2 mb-3">
+                  <ShieldAlert size={18} className={clsx(SEV_COLORS[v.severity], "shrink-0 mt-0.5")} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold">{i + 1}. {v.title}</span>
+                      <span className={clsx("text-[10px] px-2 py-0.5 rounded-full uppercase font-bold border shrink-0", SEV_BG[v.severity], SEV_COLORS[v.severity])}>
+                        {v.severity}
+                      </span>
+                      {v.cvss && <span className="text-xs text-strix-text-muted shrink-0">CVSS {v.cvss}</span>}
+                    </div>
+                  </div>
+                </div>
+
+                {v.affectedUrl && (
+                  <div className="mb-3">
+                    <span className="text-[10px] uppercase text-strix-text-muted tracking-wider">Affected URL</span>
+                    <div className="text-xs text-strix-accent font-mono mt-0.5 break-all">{v.affectedUrl}</div>
+                  </div>
+                )}
+
+                {v.description && (
+                  <div className="mb-3">
+                    <span className="text-[10px] uppercase text-strix-text-muted tracking-wider">Description</span>
+                    <div className="mt-1 report-markdown">
+                      <ReportMarkdown content={v.description} />
+                    </div>
+                  </div>
+                )}
+
+                {v.proofOfConcept && (
+                  <div className="mb-3">
+                    <span className="text-[10px] uppercase text-strix-text-muted tracking-wider">Proof of Concept</span>
+                    <pre className="mt-1 text-xs bg-strix-bg border border-strix-border-subtle rounded p-3 font-mono text-strix-text-secondary whitespace-pre-wrap break-all overflow-hidden">
+                      {v.proofOfConcept}
+                    </pre>
+                  </div>
+                )}
+
+                {v.impact && (
+                  <div className="mb-3">
+                    <span className="text-[10px] uppercase text-strix-text-muted tracking-wider">Impact</span>
+                    <div className="mt-1 report-markdown">
+                      <ReportMarkdown content={v.impact} />
+                    </div>
+                  </div>
+                )}
+
+                {v.remediation && (
+                  <div className="mb-3">
+                    <span className="text-[10px] uppercase text-strix-text-muted tracking-wider">Remediation</span>
+                    <div className="mt-1 report-markdown report-markdown-accent">
+                      <ReportMarkdown content={v.remediation} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </section>
+
+          <hr className="border-strix-border-subtle mb-8" />
+
+          {/* Appendix */}
+          <section className="mb-10">
+            <h2 className="text-xl font-semibold mb-4">Appendix — Tool Execution Log</h2>
+            <div className="bg-strix-card border border-strix-border-subtle rounded-card p-4 font-mono text-xs space-y-0.5 max-h-96 overflow-y-auto">
+              {tools.slice(0, 150).map((t) => {
+                const dur = t.duration ? `${(t.duration / 1000).toFixed(1)}s` : "...";
+                const status = t.status === "completed" ? "OK" : t.status.toUpperCase();
+                return (
+                  <div key={t.id} className="flex gap-2 text-strix-text-muted">
+                    <span className="text-strix-text-muted shrink-0">
+                      [{new Date(t.startedAt).toLocaleTimeString()}]
+                    </span>
+                    <span className="truncate">{t.toolName}</span>
+                    <span className={clsx("shrink-0", t.status === "completed" ? "text-strix-accent" : "text-severity-medium")}>
+                      ({status}, {dur})
+                    </span>
+                  </div>
+                );
+              })}
+              {tools.length > 150 && (
+                <div className="text-strix-text-muted pt-2">... and {tools.length - 150} more</div>
+              )}
+            </div>
+          </section>
+
+          <div className="text-center text-xs text-strix-text-muted py-8">
+            Generated by Strix — AI-Powered Security Testing Framework
+          </div>
+        </div>
+
+        {/* AI Chat Panel */}
+        {chatOpen && (
+          <div className="w-96 border-l border-strix-border-subtle bg-strix-card flex flex-col shrink-0">
+            {/* Chat header */}
+            <div className="h-10 border-b border-strix-border-subtle flex items-center px-3 gap-2 shrink-0">
+              {!showSessionList && activeSessionId ? (
+                <button onClick={backToSessionList} className="text-strix-text-muted hover:text-white">
+                  <ArrowLeft size={16} />
+                </button>
+              ) : (
+                <Bot size={16} className="text-strix-accent" />
+              )}
+              <span className="text-sm font-medium flex-1 truncate">
+                {showSessionList
+                  ? "Chat History"
+                  : sessions.find((s) => s.id === activeSessionId)?.title || "New Chat"}
+              </span>
+              {showSessionList && (
+                <button
+                  onClick={createNewSession}
+                  className="text-strix-text-muted hover:text-strix-accent transition-colors"
+                  title="New Chat"
+                >
+                  <Plus size={16} />
+                </button>
+              )}
+              <button onClick={() => setChatOpen(false)} className="text-strix-text-muted hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Session list view */}
+            {showSessionList ? (
+              <div className="flex-1 overflow-y-auto">
+                {sessionsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 size={16} className="animate-spin text-strix-text-muted" />
+                  </div>
+                ) : sessions.length === 0 ? (
+                  <div className="text-xs text-strix-text-muted text-center py-8 px-4">
+                    <Bot size={24} className="mx-auto mb-2 opacity-40" />
+                    No chat sessions yet.
+                    <br />Click + to start a new conversation.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-strix-border-subtle">
+                    {sessions.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => loadSession(s.id)}
+                        className="w-full text-left px-3 py-2.5 hover:bg-strix-elevated transition-colors group"
+                      >
+                        <div className="flex items-center gap-2">
+                          <MessageSquare size={12} className="text-strix-text-muted shrink-0" />
+                          <span className="text-xs text-white truncate flex-1">{s.title}</span>
+                          <button
+                            onClick={(e) => handleDeleteSession(s.id, e)}
+                            className="opacity-0 group-hover:opacity-100 text-strix-text-muted hover:text-severity-high transition-all shrink-0"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        <div className="text-[10px] text-strix-text-muted mt-0.5 ml-5">
+                          {formatRelativeTime(s.updatedAt)}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+            {/* Selected text context */}
+            {selectedText && (
+              <div className="px-3 py-2 border-b border-strix-border-subtle bg-strix-elevated">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] uppercase text-strix-text-muted tracking-wider">Selected Context</span>
+                  <button onClick={() => setSelectedText("")} className="text-strix-text-muted hover:text-white">
+                    <X size={12} />
+                  </button>
+                </div>
+                <div className="text-xs text-strix-text-secondary line-clamp-3 italic">"{selectedText}"</div>
+              </div>
+            )}
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              {messages.length === 0 && !streamingText && (
+                <div className="text-xs text-strix-text-muted text-center py-8">
+                  Select text from the report and ask questions about vulnerabilities, impact, or remediation.
+                </div>
+              )}
+
+              {messages.map((msg, i) => (
+                <div key={i} className={clsx("text-sm", msg.role === "user" ? "text-right" : "")}>
+                  {msg.role === "user" ? (
+                    <div className={clsx(
+                      "inline-block rounded-card px-3 py-2 text-left max-w-[90%]",
+                      msg.isExecute
+                        ? "bg-severity-high/20 text-severity-high"
+                        : "bg-strix-accent/20 text-strix-accent"
+                    )}>
+                      {msg.isExecute && <Zap size={10} className="inline mr-1 -mt-0.5" />}
+                      {msg.content}
+                    </div>
+                  ) : msg.blocks ? (
+                    <div className="space-y-1.5">
+                      {msg.blocks.map((block, bi) =>
+                        block.type === "text" && block.text ? (
+                          <div key={bi} className="bg-strix-elevated border border-strix-border-subtle rounded-card px-3 py-2">
+                            <ChatMarkdown content={block.text} />
+                          </div>
+                        ) : block.type === "tool" && block.tool ? (
+                          <div key={bi} className="border border-strix-border-subtle rounded-card overflow-hidden">
+                            <button
+                              onClick={() => toggleTool(`${i}-${bi}`)}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 bg-strix-elevated hover:bg-strix-bg transition-colors text-left"
+                            >
+                              <ChevronRight
+                                size={12}
+                                className={clsx("text-strix-text-muted transition-transform shrink-0", expandedTools.has(`${i}-${bi}`) && "rotate-90")}
+                              />
+                              <Terminal size={12} className="text-strix-accent shrink-0" />
+                              <span className="text-xs font-mono text-strix-text-secondary truncate flex-1">{block.tool.name}</span>
+                              {block.tool.status === "done" && <Check size={12} className="text-strix-accent shrink-0" />}
+                              {block.tool.status === "error" && <XCircle size={12} className="text-severity-high shrink-0" />}
+                            </button>
+                            {expandedTools.has(`${i}-${bi}`) && (
+                              <div className="border-t border-strix-border-subtle">
+                                <div className="px-2.5 py-1.5 bg-strix-bg">
+                                  <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Input</div>
+                                  <pre className="text-[11px] font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-32 overflow-y-auto">
+                                    {JSON.stringify(block.tool.input, null, 2)}
+                                  </pre>
+                                </div>
+                                {block.tool.result && (
+                                  <div className="px-2.5 py-1.5 bg-strix-bg border-t border-strix-border-subtle">
+                                    <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Output</div>
+                                    <pre className="text-[11px] font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
+                                      {block.tool.result}
+                                    </pre>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ) : null
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-strix-elevated border border-strix-border-subtle rounded-card px-3 py-2">
+                      <ChatMarkdown content={msg.content} />
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Execute mode: streaming blocks */}
+              {streamBlocks.length > 0 && (
+                <div className="space-y-1.5">
+                  {streamBlocks.map((block, bi) =>
+                    block.type === "text" && block.text ? (
+                      <div key={bi} className="bg-strix-elevated border border-strix-border-subtle rounded-card px-3 py-2">
+                        <ChatMarkdown content={block.text} />
+                        {bi === streamBlocks.length - 1 && (
+                          <span className="inline-block w-1.5 h-3 bg-strix-accent animate-pulse ml-0.5" />
+                        )}
+                      </div>
+                    ) : block.type === "tool" && block.tool ? (
+                      <div key={bi} className={clsx(
+                        "border rounded-card overflow-hidden",
+                        block.tool.status === "running" ? "border-severity-high/40" : "border-strix-border-subtle"
+                      )}>
+                        <button
+                          onClick={() => toggleTool(`stream-${bi}`)}
+                          className="w-full flex items-center gap-2 px-2.5 py-1.5 bg-strix-elevated hover:bg-strix-bg transition-colors text-left"
+                        >
+                          <ChevronRight
+                            size={12}
+                            className={clsx("text-strix-text-muted transition-transform shrink-0", expandedTools.has(`stream-${bi}`) && "rotate-90")}
+                          />
+                          {block.tool.status === "running" ? (
+                            <Loader2 size={12} className="text-severity-high animate-spin shrink-0" />
+                          ) : (
+                            <Terminal size={12} className="text-strix-accent shrink-0" />
+                          )}
+                          <span className={clsx(
+                            "text-xs font-mono truncate flex-1",
+                            block.tool.status === "running" ? "text-severity-high" : "text-strix-text-secondary"
+                          )}>
+                            {block.tool.name}
+                          </span>
+                          {block.tool.status === "running" && (
+                            <span className="text-[10px] text-severity-high/70">running</span>
+                          )}
+                          {block.tool.status === "done" && <Check size={12} className="text-strix-accent shrink-0" />}
+                          {block.tool.status === "error" && <XCircle size={12} className="text-severity-high shrink-0" />}
+                        </button>
+                        {expandedTools.has(`stream-${bi}`) && (
+                          <div className="border-t border-strix-border-subtle">
+                            <div className="px-2.5 py-1.5 bg-strix-bg">
+                              <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Input</div>
+                              <pre className="text-[11px] font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-32 overflow-y-auto">
+                                {JSON.stringify(block.tool.input, null, 2)}
+                              </pre>
+                            </div>
+                            {block.tool.result && (
+                              <div className="px-2.5 py-1.5 bg-strix-bg border-t border-strix-border-subtle">
+                                <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Output</div>
+                                <pre className="text-[11px] font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
+                                  {block.tool.result}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : null
+                  )}
+                </div>
+              )}
+
+              {/* Ask mode: streaming text */}
+              {streamingText && streamBlocks.length === 0 && (
+                <div className="bg-strix-elevated border border-strix-border-subtle rounded-card px-3 py-2">
+                  <ChatMarkdown content={streamingText} />
+                  <span className="inline-block w-1.5 h-3 bg-strix-accent animate-pulse ml-0.5" />
+                </div>
+              )}
+
+              {/* Loading indicator */}
+              {asking && !streamingText && streamBlocks.length === 0 && (
+                <div className={clsx("flex items-center gap-2 text-xs", streamPhase ? "text-severity-high" : "text-strix-text-muted")}>
+                  <Loader2 size={14} className="animate-spin" />
+                  {streamPhase === "init" ? "Initializing AI agent..." : streamPhase === "working" ? "Executing..." : "Thinking..."}
+                </div>
+              )}
+
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="p-3 border-t border-strix-border-subtle">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setExecuteMode(!executeMode)}
+                  disabled={asking}
+                  title={executeMode ? "Execute mode: AI will use tools to test" : "Ask mode: AI answers questions only"}
+                  className={clsx(
+                    "px-2.5 py-2 rounded-btn transition-colors shrink-0 disabled:opacity-50",
+                    executeMode
+                      ? "bg-severity-high/20 text-severity-high border border-severity-high/30"
+                      : "bg-strix-elevated text-strix-text-muted hover:text-strix-accent"
+                  )}
+                >
+                  {executeMode ? <Zap size={14} /> : <MessageSquare size={14} />}
+                </button>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAsk()}
+                  placeholder={executeMode ? "Tell AI what to execute..." : "Ask about this report..."}
+                  disabled={asking}
+                  className={clsx(
+                    "flex-1 bg-strix-elevated border rounded-btn px-3 py-2 text-xs text-white placeholder:text-strix-text-muted focus:outline-none transition-colors disabled:opacity-50",
+                    executeMode ? "border-severity-high/30 focus:border-severity-high" : "border-strix-border focus:border-strix-accent"
+                  )}
+                />
+                <button
+                  onClick={handleAsk}
+                  disabled={!question.trim() || asking}
+                  className={clsx(
+                    "px-3 py-2 rounded-btn disabled:opacity-30 transition-opacity",
+                    executeMode ? "bg-severity-high text-white" : "bg-strix-accent text-black"
+                  )}
+                >
+                  {executeMode ? <Zap size={14} /> : <Send size={14} />}
+                </button>
+              </div>
+              {executeMode && (
+                <div className="mt-1.5 text-[10px] text-severity-high/70 flex items-center gap-1">
+                  <Zap size={10} />
+                  Execute mode — AI will use security tools to test
+                </div>
+              )}
+            </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Selection popup */}
+      {popup && (
+        <div
+          className="fixed z-50 animate-fade-in"
+          style={{ left: popup.x, top: popup.y, transform: "translate(-50%, -100%)" }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={openChatWithSelection}
+            className="flex items-center gap-1.5 bg-strix-accent text-black px-3 py-1.5 rounded-btn text-xs font-medium shadow-lg hover:bg-strix-accent-hover transition-colors"
+          >
+            <MessageSquare size={12} />
+            Ask AI
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -14,6 +14,8 @@ export type {
   WSMessage,
   WSClientMessage,
   ToolCategory,
+  ChatSession,
+  ChatMessageRecord,
 } from "@shared/index";
 
 export {
