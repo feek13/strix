@@ -17,10 +17,31 @@ function formatDate(iso: string): string {
   });
 }
 
-/** Convert markdown-ish text to an array of TextRuns with basic formatting */
+/**
+ * Normalize content that may have lost its newlines.
+ */
+function normalizeContent(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length > 3) return text;
+  return text
+    .replace(/([.!?:})\]]) (#{1,3} )/g, "$1\n\n$2")
+    .replace(/([.!?]) (- )/g, "$1\n$2")
+    .replace(/(```)/g, "\n$1\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+/** Strip inline markdown markers */
+function strip(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1");
+}
+
+/** Convert markdown-ish text to TextRuns with basic formatting */
 function markdownToRuns(text: string): TextRun[] {
   const runs: TextRun[] = [];
-  // Split by bold and inline code
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
   for (const part of parts) {
     if (!part) continue;
@@ -30,7 +51,7 @@ function markdownToRuns(text: string): TextRun[] {
       runs.push(new TextRun({
         text: part.slice(1, -1),
         font: "Courier New",
-        size: 18, // 9pt
+        size: 18,
         color: "22C55E",
       }));
     } else {
@@ -40,14 +61,15 @@ function markdownToRuns(text: string): TextRun[] {
   return runs;
 }
 
-/** Convert a multi-line content string into Paragraph objects */
+/** Convert multi-line content into Paragraph objects */
 function contentToParagraphs(content: string): Paragraph[] {
+  const normalized = normalizeContent(content);
   const paragraphs: Paragraph[] = [];
-  const lines = content.split("\n");
+  const lines = normalized.split("\n");
   let inCodeBlock = false;
 
   for (const line of lines) {
-    if (line.startsWith("```")) {
+    if (line.trim().startsWith("```")) {
       inCodeBlock = !inCodeBlock;
       continue;
     }
@@ -61,15 +83,22 @@ function contentToParagraphs(content: string): Paragraph[] {
           color: "22C55E",
         })],
         spacing: { before: 20, after: 20 },
-        shading: { type: ShadingType.SOLID, fill: "1A1A1A" },
+        shading: { type: ShadingType.SOLID, fill: "F0F0F0" },
       }));
       continue;
     }
 
     // Headings
+    if (line.startsWith("#### ")) {
+      paragraphs.push(new Paragraph({
+        children: [new TextRun({ text: strip(line.slice(5)), bold: true, size: 22 })],
+        spacing: { before: 100, after: 40 },
+      }));
+      continue;
+    }
     if (line.startsWith("### ")) {
       paragraphs.push(new Paragraph({
-        text: line.slice(4),
+        text: strip(line.slice(4)),
         heading: HeadingLevel.HEADING_3,
         spacing: { before: 120, after: 60 },
       }));
@@ -77,7 +106,7 @@ function contentToParagraphs(content: string): Paragraph[] {
     }
     if (line.startsWith("## ")) {
       paragraphs.push(new Paragraph({
-        text: line.slice(3),
+        text: strip(line.slice(3)),
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 160, after: 80 },
       }));
@@ -85,23 +114,62 @@ function contentToParagraphs(content: string): Paragraph[] {
     }
     if (line.startsWith("# ")) {
       paragraphs.push(new Paragraph({
-        text: line.slice(2),
+        text: strip(line.slice(2)),
         heading: HeadingLevel.HEADING_1,
         spacing: { before: 200, after: 100 },
       }));
       continue;
     }
 
+    // Horizontal rule
+    if (/^-{3,}$/.test(line.trim()) || /^\*{3,}$/.test(line.trim())) {
+      paragraphs.push(new Paragraph({
+        border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" } },
+        spacing: { before: 60, after: 60 },
+      }));
+      continue;
+    }
+
     // Empty line
     if (!line.trim()) {
-      paragraphs.push(new Paragraph({ spacing: { before: 60, after: 60 } }));
+      paragraphs.push(new Paragraph({ spacing: { before: 40, after: 40 } }));
+      continue;
+    }
+
+    // List items
+    if (/^\s*[-*]\s/.test(line)) {
+      const content = line.replace(/^\s*[-*]\s+/, "");
+      paragraphs.push(new Paragraph({
+        children: markdownToRuns(`\u2022  ${content}`),
+        spacing: { before: 20, after: 20 },
+        indent: { left: 360 },
+      }));
+      continue;
+    }
+    if (/^\s*\d+[.)]\s/.test(line)) {
+      paragraphs.push(new Paragraph({
+        children: markdownToRuns(line),
+        spacing: { before: 20, after: 20 },
+        indent: { left: 360 },
+      }));
+      continue;
+    }
+
+    // Blockquote
+    if (line.startsWith("> ")) {
+      paragraphs.push(new Paragraph({
+        children: [new TextRun({ text: strip(line.slice(2)), italics: true, color: "666666" })],
+        spacing: { before: 40, after: 40 },
+        indent: { left: 360 },
+        border: { left: { style: BorderStyle.SINGLE, size: 3, color: "22C55E" } },
+      }));
       continue;
     }
 
     // Regular text with inline formatting
     paragraphs.push(new Paragraph({
       children: markdownToRuns(line),
-      spacing: { before: 40, after: 40 },
+      spacing: { before: 30, after: 30 },
     }));
   }
 
@@ -155,6 +223,7 @@ export async function generateChatDOCX(
   for (const msg of messages) {
     const roleLabel = msg.role === "user" ? "User" : "Assistant";
     const roleColor = msg.role === "user" ? "60A5FA" : "22C55E";
+    const hasBlocks = !!msg.blocks;
 
     // Role header
     children.push(new Paragraph({
@@ -165,25 +234,20 @@ export async function generateChatDOCX(
       spacing: { before: 160, after: 60 },
     }));
 
-    // Content
-    if (msg.content) {
-      children.push(...contentToParagraphs(msg.content));
-    }
-
-    // Tool blocks
-    if (msg.blocks) {
+    // For messages with blocks (execute mode), use blocks only to avoid duplication
+    if (hasBlocks) {
       try {
-        const blocks: ParsedBlock[] = JSON.parse(msg.blocks);
+        const blocks: ParsedBlock[] = JSON.parse(msg.blocks!);
         for (const block of blocks) {
           if (block.type === "text" && block.text) {
             children.push(...contentToParagraphs(block.text));
           } else if (block.type === "tool" && block.tool) {
-            const statusIcon = block.tool.status === "done" ? "[OK]"
-              : block.tool.status === "error" ? "[ERR]" : "[...]";
+            const statusIcon = block.tool.status === "done" ? "OK"
+              : block.tool.status === "error" ? "ERR" : "...";
 
             children.push(new Paragraph({
               children: [new TextRun({
-                text: `Tool: ${block.tool.name} ${statusIcon}`,
+                text: `Tool: ${block.tool.name} [${statusIcon}]`,
                 font: "Courier New",
                 size: 18,
                 bold: true,
@@ -217,6 +281,8 @@ export async function generateChatDOCX(
           }
         }
       } catch { /* invalid blocks JSON, skip */ }
+    } else if (msg.content) {
+      children.push(...contentToParagraphs(msg.content));
     }
 
     // Separator

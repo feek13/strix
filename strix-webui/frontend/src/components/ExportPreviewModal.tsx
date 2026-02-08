@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, type ComponentPropsWithoutRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { X, Download, Loader2, FileText, FileType, FileDown } from "lucide-react";
@@ -13,6 +13,56 @@ interface ExportPreviewModalProps {
   sessionId: string;
   sessionTitle: string;
   markdownContent: string;
+}
+
+/** Styled markdown renderer for document preview (larger text, better spacing than chat) */
+function PreviewMarkdown({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children }) => <h1 className="text-xl font-bold text-white mt-6 mb-3 first:mt-0 border-b border-strix-border-subtle pb-2">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-lg font-bold text-white mt-5 mb-2">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-base font-bold text-white mt-4 mb-2">{children}</h3>,
+        h4: ({ children }) => <h4 className="text-sm font-semibold text-strix-text-secondary mt-3 mb-1.5">{children}</h4>,
+        p: ({ children }) => <p className="text-sm text-strix-text-secondary mb-3 leading-relaxed">{children}</p>,
+        strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+        em: ({ children }) => <em className="text-strix-text-secondary italic">{children}</em>,
+        ul: ({ children }) => <ul className="text-sm text-strix-text-secondary mb-3 ml-5 space-y-1 list-disc">{children}</ul>,
+        ol: ({ children }) => <ol className="text-sm text-strix-text-secondary mb-3 ml-5 space-y-1 list-decimal">{children}</ol>,
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        code: ({ className, children, ...props }: ComponentPropsWithoutRef<"code">) => {
+          const isBlock = className?.includes("language-");
+          if (isBlock) {
+            return (
+              <pre className="bg-[#0D0D0D] border border-strix-border-subtle rounded-md p-3 my-3 overflow-x-auto">
+                <code className="text-xs font-mono text-strix-accent leading-relaxed whitespace-pre-wrap break-all">{children}</code>
+              </pre>
+            );
+          }
+          return <code className="text-xs font-mono bg-[#0D0D0D] text-strix-accent px-1.5 py-0.5 rounded border border-strix-border-subtle" {...props}>{children}</code>;
+        },
+        pre: ({ children }) => <>{children}</>,
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-3 border-strix-accent/50 pl-4 my-3 bg-strix-elevated/50 rounded-r-md py-2 pr-3">{children}</blockquote>
+        ),
+        hr: () => <hr className="border-strix-border-subtle my-4" />,
+        a: ({ href, children }) => (
+          <a href={href} target="_blank" rel="noopener noreferrer" className="text-strix-accent hover:underline break-all">{children}</a>
+        ),
+        table: ({ children }) => (
+          <div className="overflow-x-auto my-3 border border-strix-border-subtle rounded-md">
+            <table className="text-xs w-full border-collapse">{children}</table>
+          </div>
+        ),
+        thead: ({ children }) => <thead className="bg-strix-elevated">{children}</thead>,
+        th: ({ children }) => <th className="text-left px-3 py-2 text-strix-text-secondary font-semibold border-b border-strix-border-subtle">{children}</th>,
+        td: ({ children }) => <td className="px-3 py-2 text-strix-text-muted border-t border-strix-border-subtle/50">{children}</td>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
 }
 
 export default function ExportPreviewModal({
@@ -162,9 +212,7 @@ export default function ExportPreviewModal({
         <div className="flex-1 overflow-hidden px-5 py-3 min-h-0">
           {activeTab === "markdown" && (
             <div className="h-full overflow-y-auto bg-strix-bg border border-strix-border-subtle rounded-lg p-5">
-              <div className="prose prose-invert prose-sm max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdownContent}</ReactMarkdown>
-              </div>
+              <PreviewMarkdown content={markdownContent} />
             </div>
           )}
 
@@ -205,9 +253,7 @@ export default function ExportPreviewModal({
                   <div className="text-xs text-strix-text-muted bg-strix-elevated border border-strix-border-subtle rounded-md px-3 py-2 mb-4">
                     Preview shows Markdown approximation. Download for full Word formatting.
                   </div>
-                  <div className="prose prose-invert prose-sm max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdownContent}</ReactMarkdown>
-                  </div>
+                  <PreviewMarkdown content={markdownContent} />
                 </>
               )}
             </div>

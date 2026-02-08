@@ -27,6 +27,21 @@ function formatDate(iso?: string): string {
   });
 }
 
+/**
+ * Normalize content that may have lost its newlines.
+ * Inserts line breaks before markdown block markers that appear mid-line.
+ */
+function normalizeContent(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length > 3) return text;
+
+  return text
+    .replace(/([.!?:})\]]) (#{1,3} )/g, "$1\n\n$2")
+    .replace(/([.!?]) (- )/g, "$1\n$2")
+    .replace(/(```)/g, "\n$1\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
 export function generateChatMarkdown(
   sessionTitle: string,
   messages: ExportMessage[],
@@ -55,21 +70,21 @@ export function generateChatMarkdown(
     lines.push(`### **${roleLabel}**${timestamp}`);
     lines.push("");
 
-    if (msg.content) {
-      lines.push(msg.content);
-      lines.push("");
-    }
+    const hasBlocks = msg.blocks && msg.blocks.length > 0;
 
-    if (msg.blocks) {
-      for (const block of msg.blocks) {
+    // For messages with blocks (execute mode), use blocks only to avoid
+    // duplicating text (content is a concatenation of all text blocks)
+    if (hasBlocks) {
+      for (const block of msg.blocks!) {
         if (block.type === "text" && block.text) {
-          lines.push(block.text);
+          lines.push(normalizeContent(block.text));
           lines.push("");
         } else if (block.type === "tool" && block.tool) {
           const statusLabel = block.tool.status === "done" ? "done"
             : block.tool.status === "error" ? "error" : "running";
 
           lines.push(`> **Tool: ${block.tool.name}** (${statusLabel})`);
+          lines.push(">");
 
           const inputStr = JSON.stringify(block.tool.input);
           const truncInput = inputStr.length > 200 ? inputStr.slice(0, 200) + "..." : inputStr;
@@ -78,11 +93,15 @@ export function generateChatMarkdown(
           if (block.tool.result) {
             const truncResult = block.tool.result.length > 300
               ? block.tool.result.slice(0, 300) + "..." : block.tool.result;
+            lines.push(">");
             lines.push(`> Result: \`${truncResult}\``);
           }
           lines.push("");
         }
       }
+    } else if (msg.content) {
+      lines.push(normalizeContent(msg.content));
+      lines.push("");
     }
 
     lines.push("---");
