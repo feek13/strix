@@ -1,27 +1,18 @@
 import PDFDocument from "pdfkit";
 import { existsSync } from "fs";
 import type { ChatSession, ChatMessageRecord } from "@strix-webui/shared";
+import {
+  type ParsedBlock, REPORT_COLORS as COLORS,
+  TOOL_INPUT_TRUNCATE, TOOL_RESULT_TRUNCATE,
+  formatDate, normalizeContent, stripMarkdown as stripMd, truncate,
+} from "./utils.js";
 
-const COLORS = {
-  text: "#FFFFFF",
-  muted: "#A0A0A0",
-  border: "#2A2A2A",
-  accent: "#22C55E",
-};
-
-interface ParsedBlock {
-  type: "text" | "tool";
-  text?: string;
-  tool?: { name: string; status: string; input: Record<string, unknown>; result?: string };
-}
-
-/** Font paths to try for CJK support (macOS → Linux fallbacks) */
+/** Font paths to try for CJK support — TTF only, PDFKit cannot handle TTC */
 const CJK_FONT_CANDIDATES = [
-  { path: "/System/Library/Fonts/STHeiti Medium.ttc", name: "STHeiti" },
-  { path: "/System/Library/Fonts/Hiragino Sans GB.ttc", name: "HiraginoSansGB" },
-  { path: "/System/Library/Fonts/Supplemental/Arial Unicode.ttf", name: "ArialUnicode" },
-  { path: "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", name: "NotoSansCJK" },
-  { path: "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", name: "NotoSansCJK" },
+  "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+  "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttf",
+  "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttf",
+  "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.otf",
 ];
 
 interface FontConfig {
@@ -34,13 +25,11 @@ interface FontConfig {
 
 /** Register a CJK-capable font or fall back to Helvetica */
 function setupFonts(doc: PDFKit.PDFDocument): FontConfig {
-  for (const candidate of CJK_FONT_CANDIDATES) {
-    if (existsSync(candidate.path)) {
+  for (const fontPath of CJK_FONT_CANDIDATES) {
+    if (existsSync(fontPath)) {
       try {
-        doc.registerFont("CJK-Regular", candidate.path);
-        // TTC files may support bold via different index; TTF has only one face
-        // For simplicity, use the same file for bold (PDFKit will fake bold)
-        doc.registerFont("CJK-Bold", candidate.path);
+        doc.registerFont("CJK-Regular", fontPath);
+        doc.registerFont("CJK-Bold", fontPath);
         return {
           regular: "CJK-Regular",
           bold: "CJK-Bold",
@@ -64,37 +53,10 @@ function setupFonts(doc: PDFKit.PDFDocument): FontConfig {
   };
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("en-US", {
-    year: "numeric", month: "short", day: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
-}
-
 function ensureSpace(doc: PDFKit.PDFDocument, needed: number) {
   if (doc.y > doc.page.height - needed) {
     doc.addPage();
   }
-}
-
-/** Normalize content that may have lost its newlines */
-function normalizeContent(text: string): string {
-  const lines = text.split("\n");
-  if (lines.length > 3) return text;
-  return text
-    .replace(/([.!?:})\]]) (#{1,3} )/g, "$1\n\n$2")
-    .replace(/([.!?]) (- )/g, "$1\n$2")
-    .replace(/(```)/g, "\n$1\n")
-    .replace(/\n{3,}/g, "\n\n");
-}
-
-/** Strip inline markdown markers */
-function stripMd(text: string): string {
-  return text
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1");
 }
 
 /** Render text content line-by-line */
@@ -230,17 +192,6 @@ export async function generateChatPDF(
     // ==================== Messages ====================
     doc.addPage();
 
-    let pageNum = 2;
-    const addFooter = () => {
-      doc.font(fonts.regular).fontSize(8).fillColor(COLORS.muted)
-        .text(`Exported from Strix — Page ${pageNum}`, 50, doc.page.height - 40, {
-          align: "center", width: pageWidth,
-        });
-      pageNum++;
-    };
-
-    doc.on("pageAdded", addFooter);
-
     for (const msg of messages) {
       ensureSpace(doc, 50);
 
@@ -269,14 +220,12 @@ export async function generateChatPDF(
               doc.font(fonts.monoBold).fontSize(9).fillColor(COLORS.muted)
                 .text(`Tool: ${block.tool.name} [${statusIcon}]`);
 
-              const inputStr = JSON.stringify(block.tool.input);
-              const truncInput = inputStr.length > 200 ? inputStr.slice(0, 200) + "..." : inputStr;
+              const truncInput = truncate(JSON.stringify(block.tool.input), TOOL_INPUT_TRUNCATE);
               doc.font(fonts.mono).fontSize(7.5).fillColor(COLORS.muted)
                 .text(`  Input: ${truncInput}`, { width: pageWidth });
 
               if (block.tool.result) {
-                const truncResult = block.tool.result.length > 300
-                  ? block.tool.result.slice(0, 300) + "..." : block.tool.result;
+                const truncResult = truncate(block.tool.result, TOOL_RESULT_TRUNCATE);
                 doc.font(fonts.mono).fontSize(7.5).fillColor(COLORS.muted)
                   .text(`  Result: ${truncResult}`, { width: pageWidth });
               }
@@ -298,7 +247,6 @@ export async function generateChatPDF(
       doc.font(fonts.regular).fontSize(11).fillColor(COLORS.muted).text("No messages in this session.");
     }
 
-    addFooter();
     doc.end();
   });
 }

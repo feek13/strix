@@ -5,39 +5,20 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   ArrowLeft, Download, MessageSquare, Send, X, Loader2,
-  ShieldAlert, Clock, Bot, Wrench, AlertTriangle, Zap,
-  ChevronRight, Check, XCircle, Terminal, Plus, Trash2,
+  ShieldAlert, Bot, AlertTriangle, Zap, Plus, Trash2,
 } from "lucide-react";
 import type { Scan, Vulnerability, Agent, ToolExecution, ChatSession } from "../types";
+import type { ToolBlock, StreamBlock, ChatMessage } from "../types/chat";
 import * as chatApi from "../lib/chatApi";
-import { getUserId } from "../lib/userId";
+import { formatRelativeTime, formatDuration } from "../lib/dateUtils";
+import { useTypewriter } from "../hooks/useTypewriter";
+import { ToolBlockRenderer } from "../components/ToolBlockRenderer";
 
 interface ScanDetail {
   scan: Scan;
   agents: Agent[];
   tools: ToolExecution[];
   vulnerabilities: Vulnerability[];
-}
-
-interface ToolBlock {
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-  status: "running" | "done" | "error";
-  result?: string;
-}
-
-interface StreamBlock {
-  type: "text" | "tool";
-  text?: string;
-  tool?: ToolBlock;
-}
-
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  isExecute?: boolean;
-  blocks?: StreamBlock[];
 }
 
 /** Markdown renderer styled for the chat panel */
@@ -156,23 +137,6 @@ const SEV_BG: Record<string, string> = {
   info: "bg-strix-elevated border-strix-border-subtle",
 };
 
-function formatDuration(ms: number): string {
-  const mins = Math.floor(ms / 60000);
-  const secs = Math.floor((ms % 60000) / 1000);
-  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-}
-
-function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 export default function ReportPreview() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -191,11 +155,14 @@ export default function ReportPreview() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
   const [executeMode, setExecuteMode] = useState(false);
   const [streamBlocks, setStreamBlocks] = useState<StreamBlock[]>([]);
   const [streamPhase, setStreamPhase] = useState<"init" | "working" | "done" | null>(null);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const [compacting, setCompacting] = useState(false);
+
+  const typewriter = useTypewriter();
+  const streamingText = typewriter.text;
 
   // Chat sessions
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -216,14 +183,15 @@ export default function ReportPreview() {
   }, [id]);
 
   // Text selection handler — store text in ref (no re-render), only update popup position
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
     const sel = window.getSelection();
     const text = sel?.toString().trim();
     if (text && text.length > 3 && reportRef.current?.contains(sel?.anchorNode || null)) {
-      const range = sel!.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
       selectedTextRef.current = text;
-      setPopup({ x: rect.left + rect.width / 2, y: rect.top - 8 });
+      // Use mouse position so the popup always appears where the user released,
+      // even for large multi-line selections where getBoundingClientRect().top
+      // would be off-screen.
+      setPopup({ x: e.clientX, y: e.clientY - 12 });
     } else {
       setPopup(null);
     }
@@ -331,9 +299,10 @@ export default function ReportPreview() {
     setMessages((prev) => [...prev, userMsg]);
     setQuestion("");
     setAsking(true);
-    setStreamingText("");
+    typewriter.reset();
     setStreamBlocks([]);
     setStreamPhase(isExec ? "init" : null);
+    setCompacting(false);
 
     // Auto-create session if none active
     let sessionId = activeSessionId;
@@ -369,8 +338,10 @@ export default function ReportPreview() {
           scanId: id,
           selectedText,
           question: q,
-          history: messages.map((m) => ({ role: m.role, content: m.content })),
+          sessionId,
           mode: isExec ? "execute" : "ask",
+          // Always send history — backend decides whether to use it
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
 
@@ -402,24 +373,31 @@ export default function ReportPreview() {
             const evt = JSON.parse(raw);
             if (evt.error) throw new Error(evt.error);
 
-            if (isExec && evt.type) {
-              // Structured execute mode events
+            if (evt.type) {
               switch (evt.type) {
                 case "init":
                   setStreamPhase("working");
                   break;
 
+                case "compacting":
+                  setCompacting(true);
+                  break;
+
                 case "text": {
                   const text = evt.text || "";
                   fullText += text;
-                  // Append to last text block or create new one
-                  const last = blocks[blocks.length - 1];
-                  if (last && last.type === "text") {
-                    last.text = (last.text || "") + text;
+                  if (compacting) setCompacting(false);
+                  if (isExec) {
+                    const last = blocks[blocks.length - 1];
+                    if (last && last.type === "text") {
+                      last.text = (last.text || "") + text;
+                    } else {
+                      blocks.push({ type: "text", text });
+                    }
+                    setStreamBlocks([...blocks]);
                   } else {
-                    blocks.push({ type: "text", text });
+                    typewriter.start(fullText);
                   }
-                  setStreamBlocks([...blocks]);
                   break;
                 }
 
@@ -436,7 +414,6 @@ export default function ReportPreview() {
                 }
 
                 case "tool_result": {
-                  // Find and update matching tool block
                   for (const block of blocks) {
                     const t = block.tool;
                     if (block.type === "tool" && t && t.id === evt.toolUseId) {
@@ -450,13 +427,19 @@ export default function ReportPreview() {
                 }
 
                 case "result":
+                  // Use result text as fallback if no text events were received
+                  if (!fullText && evt.result) {
+                    fullText = evt.result;
+                    if (!isExec) {
+                      typewriter.start(fullText);
+                    } else {
+                      blocks.push({ type: "text", text: fullText });
+                      setStreamBlocks([...blocks]);
+                    }
+                  }
                   setStreamPhase("done");
                   break;
               }
-            } else if (evt.text) {
-              // Ask mode: plain text streaming
-              fullText += evt.text;
-              setStreamingText(fullText);
             }
           } catch (e) {
             if (e instanceof Error && e.message !== "[DONE]") throw e;
@@ -464,32 +447,48 @@ export default function ReportPreview() {
         }
       }
 
-      const assistantMsg: ChatMessage = isExec
-        ? { role: "assistant", content: fullText, blocks: blocks.length > 0 ? [...blocks] : undefined }
-        : { role: "assistant", content: fullText };
-      setMessages((prev) => [...prev, assistantMsg]);
-      setStreamingText("");
+      // Stop typewriter and show full text
+      typewriter.stop();
+
+      // Don't add empty assistant messages
+      if (fullText || blocks.length > 0) {
+        const assistantMsg: ChatMessage = isExec
+          ? { role: "assistant", content: fullText, blocks: blocks.length > 0 ? [...blocks] : undefined }
+          : { role: "assistant", content: fullText };
+        setMessages((prev) => [...prev, assistantMsg]);
+
+        if (sessionId) {
+          try {
+            await chatApi.saveMessage(sessionId, {
+              role: "assistant",
+              content: fullText,
+              blocks: assistantMsg.blocks ? JSON.stringify(assistantMsg.blocks) : undefined,
+            });
+          } catch { /* ignore */ }
+        }
+      }
+
+      typewriter.reset();
       setStreamBlocks([]);
       setStreamPhase(null);
 
-      // Save assistant message to session
+      // Refresh sessions to pick up claudeSessionId set by backend
       if (sessionId) {
         try {
-          await chatApi.saveMessage(sessionId, {
-            role: "assistant",
-            content: fullText,
-            blocks: assistantMsg.blocks ? JSON.stringify(assistantMsg.blocks) : undefined,
-          });
+          const updated = await chatApi.listSessions();
+          setSessions(updated);
         } catch { /* ignore */ }
       }
     } catch (err) {
+      typewriter.stop();
       const msg = err instanceof Error ? err.message : "Unknown error";
       setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
     } finally {
       setAsking(false);
-      setStreamingText("");
+      typewriter.reset();
       setStreamBlocks([]);
       setStreamPhase(null);
+      setCompacting(false);
     }
   };
 
@@ -869,39 +868,14 @@ export default function ReportPreview() {
                             <ChatMarkdown content={block.text} />
                           </div>
                         ) : block.type === "tool" && block.tool ? (
-                          <div key={bi} className="border border-strix-border-subtle rounded-card overflow-hidden">
-                            <button
-                              onClick={() => toggleTool(`${i}-${bi}`)}
-                              className="w-full flex items-center gap-2 px-2.5 py-1.5 bg-strix-elevated hover:bg-strix-bg transition-colors text-left"
-                            >
-                              <ChevronRight
-                                size={12}
-                                className={clsx("text-strix-text-muted transition-transform shrink-0", expandedTools.has(`${i}-${bi}`) && "rotate-90")}
-                              />
-                              <Terminal size={12} className="text-strix-accent shrink-0" />
-                              <span className="text-xs font-mono text-strix-text-secondary truncate flex-1">{block.tool.name}</span>
-                              {block.tool.status === "done" && <Check size={12} className="text-strix-accent shrink-0" />}
-                              {block.tool.status === "error" && <XCircle size={12} className="text-severity-high shrink-0" />}
-                            </button>
-                            {expandedTools.has(`${i}-${bi}`) && (
-                              <div className="border-t border-strix-border-subtle">
-                                <div className="px-2.5 py-1.5 bg-strix-bg">
-                                  <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Input</div>
-                                  <pre className="text-[11px] font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-32 overflow-y-auto">
-                                    {JSON.stringify(block.tool.input, null, 2)}
-                                  </pre>
-                                </div>
-                                {block.tool.result && (
-                                  <div className="px-2.5 py-1.5 bg-strix-bg border-t border-strix-border-subtle">
-                                    <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Output</div>
-                                    <pre className="text-[11px] font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
-                                      {block.tool.result}
-                                    </pre>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
+                          <ToolBlockRenderer
+                            key={bi}
+                            tool={block.tool}
+                            toolKey={`${i}-${bi}`}
+                            isExpanded={expandedTools.has(`${i}-${bi}`)}
+                            onToggle={() => toggleTool(`${i}-${bi}`)}
+                            variant="compact"
+                          />
                         ) : null
                       )}
                     </div>
@@ -925,54 +899,14 @@ export default function ReportPreview() {
                         )}
                       </div>
                     ) : block.type === "tool" && block.tool ? (
-                      <div key={bi} className={clsx(
-                        "border rounded-card overflow-hidden",
-                        block.tool.status === "running" ? "border-severity-high/40" : "border-strix-border-subtle"
-                      )}>
-                        <button
-                          onClick={() => toggleTool(`stream-${bi}`)}
-                          className="w-full flex items-center gap-2 px-2.5 py-1.5 bg-strix-elevated hover:bg-strix-bg transition-colors text-left"
-                        >
-                          <ChevronRight
-                            size={12}
-                            className={clsx("text-strix-text-muted transition-transform shrink-0", expandedTools.has(`stream-${bi}`) && "rotate-90")}
-                          />
-                          {block.tool.status === "running" ? (
-                            <Loader2 size={12} className="text-severity-high animate-spin shrink-0" />
-                          ) : (
-                            <Terminal size={12} className="text-strix-accent shrink-0" />
-                          )}
-                          <span className={clsx(
-                            "text-xs font-mono truncate flex-1",
-                            block.tool.status === "running" ? "text-severity-high" : "text-strix-text-secondary"
-                          )}>
-                            {block.tool.name}
-                          </span>
-                          {block.tool.status === "running" && (
-                            <span className="text-[10px] text-severity-high/70">running</span>
-                          )}
-                          {block.tool.status === "done" && <Check size={12} className="text-strix-accent shrink-0" />}
-                          {block.tool.status === "error" && <XCircle size={12} className="text-severity-high shrink-0" />}
-                        </button>
-                        {expandedTools.has(`stream-${bi}`) && (
-                          <div className="border-t border-strix-border-subtle">
-                            <div className="px-2.5 py-1.5 bg-strix-bg">
-                              <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Input</div>
-                              <pre className="text-[11px] font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-32 overflow-y-auto">
-                                {JSON.stringify(block.tool.input, null, 2)}
-                              </pre>
-                            </div>
-                            {block.tool.result && (
-                              <div className="px-2.5 py-1.5 bg-strix-bg border-t border-strix-border-subtle">
-                                <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Output</div>
-                                <pre className="text-[11px] font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
-                                  {block.tool.result}
-                                </pre>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      <ToolBlockRenderer
+                        key={bi}
+                        tool={block.tool}
+                        toolKey={`stream-${bi}`}
+                        isExpanded={expandedTools.has(`stream-${bi}`)}
+                        onToggle={() => toggleTool(`stream-${bi}`)}
+                        variant="compact"
+                      />
                     ) : null
                   )}
                 </div>
@@ -986,11 +920,29 @@ export default function ReportPreview() {
                 </div>
               )}
 
+              {/* Context compaction animation */}
+              {compacting && (
+                <div className="flex items-center gap-2.5 px-3 py-2.5 bg-strix-elevated border border-strix-accent/20 rounded-lg animate-fade-in">
+                  <div className="relative w-6 h-6 shrink-0">
+                    <div className="absolute inset-0 rounded-full border-2 border-strix-accent/30 border-t-strix-accent animate-spin" />
+                    <div className="absolute inset-2 rounded-full bg-strix-accent/20 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="text-xs text-white font-medium">Compressing context</div>
+                    <div className="text-[10px] text-strix-text-muted">Optimizing conversation memory...</div>
+                  </div>
+                </div>
+              )}
+
               {/* Loading indicator */}
-              {asking && !streamingText && streamBlocks.length === 0 && (
-                <div className={clsx("flex items-center gap-2 text-xs", streamPhase ? "text-severity-high" : "text-strix-text-muted")}>
+              {asking && !streamingText && streamBlocks.length === 0 && !compacting && (
+                <div className={clsx("flex items-center gap-2 text-xs", streamPhase && executeMode ? "text-severity-high" : streamPhase ? "text-strix-accent" : "text-strix-text-muted")}>
                   <Loader2 size={14} className="animate-spin" />
-                  {streamPhase === "init" ? "Initializing AI agent..." : streamPhase === "working" ? "Executing..." : "Thinking..."}
+                  {streamPhase === "init"
+                    ? (executeMode ? "Initializing AI agent..." : "Connecting...")
+                    : streamPhase === "working"
+                      ? (executeMode ? "Executing..." : "Thinking...")
+                      : "Thinking..."}
                 </div>
               )}
 

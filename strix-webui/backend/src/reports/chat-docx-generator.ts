@@ -3,41 +3,10 @@ import {
   AlignmentType, BorderStyle, ShadingType,
 } from "docx";
 import type { ChatSession, ChatMessageRecord } from "@strix-webui/shared";
-
-interface ParsedBlock {
-  type: "text" | "tool";
-  text?: string;
-  tool?: { name: string; status: string; input: Record<string, unknown>; result?: string };
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("en-US", {
-    year: "numeric", month: "short", day: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
-}
-
-/**
- * Normalize content that may have lost its newlines.
- */
-function normalizeContent(text: string): string {
-  const lines = text.split("\n");
-  if (lines.length > 3) return text;
-  return text
-    .replace(/([.!?:})\]]) (#{1,3} )/g, "$1\n\n$2")
-    .replace(/([.!?]) (- )/g, "$1\n$2")
-    .replace(/(```)/g, "\n$1\n")
-    .replace(/\n{3,}/g, "\n\n");
-}
-
-/** Strip inline markdown markers */
-function strip(text: string): string {
-  return text
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1");
-}
+import {
+  type ParsedBlock, TOOL_INPUT_TRUNCATE, TOOL_RESULT_TRUNCATE,
+  formatDate, normalizeContent, stripMarkdown as strip, truncate,
+} from "./utils.js";
 
 /** Convert markdown-ish text to TextRuns with basic formatting */
 function markdownToRuns(text: string): TextRun[] {
@@ -257,8 +226,7 @@ export async function generateChatDOCX(
               shading: { type: ShadingType.SOLID, fill: "F5F5F5" },
             }));
 
-            const inputStr = JSON.stringify(block.tool.input);
-            const truncInput = inputStr.length > 200 ? inputStr.slice(0, 200) + "..." : inputStr;
+            const truncInput = truncate(JSON.stringify(block.tool.input), TOOL_INPUT_TRUNCATE);
             children.push(new Paragraph({
               children: [
                 new TextRun({ text: "Input: ", font: "Courier New", size: 16, color: "A0A0A0", bold: true }),
@@ -268,8 +236,7 @@ export async function generateChatDOCX(
             }));
 
             if (block.tool.result) {
-              const truncResult = block.tool.result.length > 300
-                ? block.tool.result.slice(0, 300) + "..." : block.tool.result;
+              const truncResult = truncate(block.tool.result, TOOL_RESULT_TRUNCATE);
               children.push(new Paragraph({
                 children: [
                   new TextRun({ text: "Result: ", font: "Courier New", size: 16, color: "A0A0A0", bold: true }),

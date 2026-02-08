@@ -4,34 +4,16 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   MessageSquare, Send, Loader2, Bot, Zap, Plus, Trash2,
-  ChevronRight, Check, XCircle, Terminal, FolderOpen, Download,
+  FolderOpen, Download,
 } from "lucide-react";
 import type { ChatSession } from "../types";
+import type { ToolBlock, StreamBlock, ChatMessage } from "../types/chat";
 import * as chatApi from "../lib/chatApi";
 import { generateChatMarkdown, type ExportMessage } from "../lib/chatExport";
+import { formatRelativeTime } from "../lib/dateUtils";
+import { useTypewriter } from "../hooks/useTypewriter";
+import { ToolBlockRenderer } from "../components/ToolBlockRenderer";
 import ExportPreviewModal from "../components/ExportPreviewModal";
-
-interface ToolBlock {
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-  status: "running" | "done" | "error";
-  result?: string;
-}
-
-interface StreamBlock {
-  type: "text" | "tool";
-  text?: string;
-  tool?: ToolBlock;
-}
-
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  isExecute?: boolean;
-  blocks?: StreamBlock[];
-  createdAt?: string;
-}
 
 const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }) {
   return (
@@ -82,17 +64,6 @@ const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }
   );
 });
 
-function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 export default function AskAI() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -104,7 +75,6 @@ export default function AskAI() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
   const [executeMode, setExecuteMode] = useState(false);
   const [streamBlocks, setStreamBlocks] = useState<StreamBlock[]>([]);
   const [streamPhase, setStreamPhase] = useState<"init" | "working" | "done" | null>(null);
@@ -112,46 +82,8 @@ export default function AskAI() {
   const [compacting, setCompacting] = useState(false);
   const [showExport, setShowExport] = useState(false);
 
-  // Typewriter animation refs
-  const typewriterTargetRef = useRef("");
-  const typewriterPosRef = useRef(0);
-  const typewriterRafRef = useRef<number>(0);
-
-  const runTypewriter = useCallback(() => {
-    const target = typewriterTargetRef.current;
-    const pos = typewriterPosRef.current;
-    if (pos < target.length) {
-      // Adaptive speed: faster for longer remaining text
-      const remaining = target.length - pos;
-      const step = remaining > 500 ? 20 : remaining > 200 ? 12 : remaining > 50 ? 6 : 3;
-      const newPos = Math.min(pos + step, target.length);
-      typewriterPosRef.current = newPos;
-      setStreamingText(target.slice(0, newPos));
-      typewriterRafRef.current = requestAnimationFrame(runTypewriter);
-    } else {
-      typewriterRafRef.current = 0;
-    }
-  }, []);
-
-  const startTypewriter = useCallback((fullText: string) => {
-    typewriterTargetRef.current = fullText;
-    if (!typewriterRafRef.current) {
-      typewriterRafRef.current = requestAnimationFrame(runTypewriter);
-    }
-  }, [runTypewriter]);
-
-  const stopTypewriter = useCallback(() => {
-    if (typewriterRafRef.current) {
-      cancelAnimationFrame(typewriterRafRef.current);
-      typewriterRafRef.current = 0;
-    }
-    // Show full text immediately
-    if (typewriterTargetRef.current) {
-      setStreamingText(typewriterTargetRef.current);
-    }
-    typewriterTargetRef.current = "";
-    typewriterPosRef.current = 0;
-  }, []);
+  const typewriter = useTypewriter();
+  const streamingText = typewriter.text;
 
   // Load sessions on mount
   const loadSessions = useCallback(async () => {
@@ -219,14 +151,14 @@ export default function AskAI() {
     } catch { /* ignore */ }
   }, [activeSessionId]);
 
-  const toggleTool = (toolId: string) => {
+  const toggleTool = useCallback((toolId: string) => {
     setExpandedTools((prev) => {
       const next = new Set(prev);
       if (next.has(toolId)) next.delete(toolId);
       else next.add(toolId);
       return next;
     });
-  };
+  }, []);
 
   // Ask AI with SSE streaming
   const handleAsk = async () => {
@@ -262,7 +194,7 @@ export default function AskAI() {
     setMessages((prev) => [...prev, userMsg]);
     setQuestion("");
     setAsking(true);
-    setStreamingText("");
+    typewriter.reset();
     setStreamBlocks([]);
     setStreamPhase(isExec ? "init" : null);
     setCompacting(false);
@@ -356,7 +288,7 @@ export default function AskAI() {
                     setStreamBlocks([...blocks]);
                   } else {
                     // Typewriter animation for ask mode
-                    startTypewriter(fullText);
+                    typewriter.start(fullText);
                   }
                   break;
                 }
@@ -388,7 +320,7 @@ export default function AskAI() {
                   if (!fullText && evt.result) {
                     fullText = evt.result;
                     if (!isExec) {
-                      startTypewriter(fullText);
+                      typewriter.start(fullText);
                     } else {
                       blocks.push({ type: "text", text: fullText });
                       setStreamBlocks([...blocks]);
@@ -405,7 +337,7 @@ export default function AskAI() {
       }
 
       // Stop typewriter and show full text
-      stopTypewriter();
+      typewriter.stop();
 
       // Don't add empty assistant messages
       if (fullText || blocks.length > 0) {
@@ -425,7 +357,7 @@ export default function AskAI() {
         }
       }
 
-      setStreamingText("");
+      typewriter.reset();
       setStreamBlocks([]);
       setStreamPhase(null);
 
@@ -437,12 +369,12 @@ export default function AskAI() {
         } catch { /* ignore */ }
       }
     } catch (err) {
-      stopTypewriter();
+      typewriter.stop();
       const msg = err instanceof Error ? err.message : "Unknown error";
       setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
     } finally {
       setAsking(false);
-      setStreamingText("");
+      typewriter.reset();
       setStreamBlocks([]);
       setStreamPhase(null);
       setCompacting(false);
@@ -590,39 +522,13 @@ export default function AskAI() {
                               <ChatMarkdown content={block.text} />
                             </div>
                           ) : block.type === "tool" && block.tool ? (
-                            <div key={bi} className="border border-strix-border-subtle rounded-xl overflow-hidden">
-                              <button
-                                onClick={() => toggleTool(`${i}-${bi}`)}
-                                className="w-full flex items-center gap-2 px-3 py-2 bg-strix-elevated hover:bg-strix-bg transition-colors text-left"
-                              >
-                                <ChevronRight
-                                  size={12}
-                                  className={clsx("text-strix-text-muted transition-transform shrink-0", expandedTools.has(`${i}-${bi}`) && "rotate-90")}
-                                />
-                                <Terminal size={12} className="text-strix-accent shrink-0" />
-                                <span className="text-xs font-mono text-strix-text-secondary truncate flex-1">{block.tool.name}</span>
-                                {block.tool.status === "done" && <Check size={12} className="text-strix-accent shrink-0" />}
-                                {block.tool.status === "error" && <XCircle size={12} className="text-severity-high shrink-0" />}
-                              </button>
-                              {expandedTools.has(`${i}-${bi}`) && (
-                                <div className="border-t border-strix-border-subtle">
-                                  <div className="px-3 py-2 bg-strix-bg">
-                                    <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Input</div>
-                                    <pre className="text-xs font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
-                                      {JSON.stringify(block.tool.input, null, 2)}
-                                    </pre>
-                                  </div>
-                                  {block.tool.result && (
-                                    <div className="px-3 py-2 bg-strix-bg border-t border-strix-border-subtle">
-                                      <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Output</div>
-                                      <pre className="text-xs font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-60 overflow-y-auto">
-                                        {block.tool.result}
-                                      </pre>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
+                            <ToolBlockRenderer
+                              key={bi}
+                              tool={block.tool}
+                              toolKey={`${i}-${bi}`}
+                              isExpanded={expandedTools.has(`${i}-${bi}`)}
+                              onToggle={() => toggleTool(`${i}-${bi}`)}
+                            />
                           ) : null
                         )}
                       </div>
@@ -646,54 +552,13 @@ export default function AskAI() {
                           )}
                         </div>
                       ) : block.type === "tool" && block.tool ? (
-                        <div key={bi} className={clsx(
-                          "border rounded-xl overflow-hidden",
-                          block.tool.status === "running" ? "border-severity-high/40" : "border-strix-border-subtle"
-                        )}>
-                          <button
-                            onClick={() => toggleTool(`stream-${bi}`)}
-                            className="w-full flex items-center gap-2 px-3 py-2 bg-strix-elevated hover:bg-strix-bg transition-colors text-left"
-                          >
-                            <ChevronRight
-                              size={12}
-                              className={clsx("text-strix-text-muted transition-transform shrink-0", expandedTools.has(`stream-${bi}`) && "rotate-90")}
-                            />
-                            {block.tool.status === "running" ? (
-                              <Loader2 size={12} className="text-severity-high animate-spin shrink-0" />
-                            ) : (
-                              <Terminal size={12} className="text-strix-accent shrink-0" />
-                            )}
-                            <span className={clsx(
-                              "text-xs font-mono truncate flex-1",
-                              block.tool.status === "running" ? "text-severity-high" : "text-strix-text-secondary"
-                            )}>
-                              {block.tool.name}
-                            </span>
-                            {block.tool.status === "running" && (
-                              <span className="text-[10px] text-severity-high/70">running</span>
-                            )}
-                            {block.tool.status === "done" && <Check size={12} className="text-strix-accent shrink-0" />}
-                            {block.tool.status === "error" && <XCircle size={12} className="text-severity-high shrink-0" />}
-                          </button>
-                          {expandedTools.has(`stream-${bi}`) && (
-                            <div className="border-t border-strix-border-subtle">
-                              <div className="px-3 py-2 bg-strix-bg">
-                                <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Input</div>
-                                <pre className="text-xs font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
-                                  {JSON.stringify(block.tool.input, null, 2)}
-                                </pre>
-                              </div>
-                              {block.tool.result && (
-                                <div className="px-3 py-2 bg-strix-bg border-t border-strix-border-subtle">
-                                  <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Output</div>
-                                  <pre className="text-xs font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all max-h-60 overflow-y-auto">
-                                    {block.tool.result}
-                                  </pre>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                        <ToolBlockRenderer
+                          key={bi}
+                          tool={block.tool}
+                          toolKey={`stream-${bi}`}
+                          isExpanded={expandedTools.has(`stream-${bi}`)}
+                          onToggle={() => toggleTool(`stream-${bi}`)}
+                        />
                       ) : null
                     )}
                   </div>
