@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useScanStore } from "../store/scanStore";
 import { FileText, Download, Eye, Loader2, ShieldAlert } from "lucide-react";
 import clsx from "clsx";
@@ -18,6 +19,7 @@ interface ReportPreview {
 }
 
 export default function Reports() {
+  const navigate = useNavigate();
   const scans = useScanStore((s) => s.scans);
   const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
   const [preview, setPreview] = useState<ReportPreview | null>(null);
@@ -124,12 +126,19 @@ export default function Reports() {
               {/* Actions */}
               <div className="flex items-center gap-3">
                 <button
+                  onClick={() => navigate(`/scan/${selectedScanId}/report`)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-btn bg-strix-accent text-black text-sm font-medium hover:bg-strix-accent-hover transition-colors"
+                >
+                  <Eye size={16} />
+                  Preview Report
+                </button>
+                <button
                   onClick={downloadPDF}
                   disabled={generating}
-                  className="flex items-center gap-2 px-4 py-2 rounded-btn bg-strix-accent text-black text-sm font-medium hover:bg-strix-accent-hover transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 rounded-btn bg-strix-elevated text-strix-text-secondary text-sm hover:text-white transition-colors disabled:opacity-50"
                 >
                   {generating ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                  Generate PDF
+                  Download PDF
                 </button>
               </div>
 

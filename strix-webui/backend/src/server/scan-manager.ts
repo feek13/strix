@@ -4,9 +4,13 @@ import type { Scan, InternalEvent } from "@strix-webui/shared";
 import { v4 as uuidv4 } from "uuid";
 import { writeEvent } from "../hooks/utils.js";
 
+const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const MAX_TURNS = 200;
+
 interface ActiveScan {
   scan: Scan;
   process: ChildProcess;
+  timeoutTimer: ReturnType<typeof setTimeout>;
 }
 
 let activeScan: ActiveScan | null = null;
@@ -15,7 +19,12 @@ export function getActiveScan(): ActiveScan | null {
   return activeScan;
 }
 
-export function startScan(target: string, targetType: Scan["targetType"], mode: string): Scan {
+export function startScan(
+  target: string,
+  targetType: Scan["targetType"],
+  mode: string,
+  timeoutMinutes?: number
+): Scan {
   if (activeScan) {
     throw new Error("A scan is already running. Stop it first.");
   }
@@ -51,12 +60,14 @@ export function startScan(target: string, targetType: Scan["targetType"], mode: 
   // Build the prompt for Claude Code
   const prompt = buildPrompt(target, targetType, mode);
 
+  const timeoutMs = (timeoutMinutes ?? 30) * 60 * 1000;
+
   // Spawn Claude Code CLI (uses global MCP servers from ~/.claude/settings.json)
   const child = spawn("claude", [
     "--print",
     "--dangerously-skip-permissions",
     "--no-session-persistence",
-    "--max-budget-usd", "5",
+    "--max-turns", String(MAX_TURNS),
     prompt,
   ], {
     env: {
@@ -66,7 +77,20 @@ export function startScan(target: string, targetType: Scan["targetType"], mode: 
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  activeScan = { scan, process: child };
+  // Scan timeout — kill the process if it runs too long
+  const timeoutTimer = setTimeout(() => {
+    if (activeScan?.scan.id === scanId) {
+      console.log(`[Scan ${scanId.slice(0, 8)}] Timeout after ${timeoutMs / 60000} minutes, killing process`);
+      activeScan.process.kill("SIGTERM");
+      setTimeout(() => {
+        if (activeScan?.scan.id === scanId) {
+          activeScan.process.kill("SIGKILL");
+        }
+      }, 10000);
+    }
+  }, timeoutMs);
+
+  activeScan = { scan, process: child, timeoutTimer };
 
   child.stdout?.on("data", (data: Buffer) => {
     console.log(`[Scan ${scanId.slice(0, 8)}] ${data.toString().trim()}`);
@@ -90,6 +114,7 @@ export function startScan(target: string, targetType: Scan["targetType"], mode: 
     writeEvent(completeEvent);
 
     if (activeScan?.scan.id === scanId) {
+      clearTimeout(activeScan.timeoutTimer);
       activeScan = null;
     }
     console.log(`[Scan ${scanId.slice(0, 8)}] Process exited with code ${code}`);
@@ -99,6 +124,7 @@ export function startScan(target: string, targetType: Scan["targetType"], mode: 
     console.error(`[Scan ${scanId.slice(0, 8)}] Process error:`, err);
     store.updateScanStatus(scanId, "failed", new Date().toISOString());
     if (activeScan?.scan.id === scanId) {
+      clearTimeout(activeScan.timeoutTimer);
       activeScan = null;
     }
   });
@@ -111,6 +137,7 @@ export function stopScan(scanId: string): boolean {
     return false;
   }
 
+  clearTimeout(activeScan.timeoutTimer);
   activeScan.process.kill("SIGTERM");
   setTimeout(() => {
     if (activeScan?.scan.id === scanId) {
@@ -142,11 +169,18 @@ ${modeInstruction}
 
 Instructions:
 1. Start by creating a sandbox environment
-2. Perform reconnaissance to understand the target
-3. Identify potential vulnerabilities
+2. Perform quick reconnaissance to understand the target (spend no more than 2-3 minutes on recon)
+3. Identify potential vulnerabilities based on recon findings
 4. Test and validate each finding with proof-of-concept
 5. Document all verified vulnerabilities using create_vulnerability_report
-6. Generate a comprehensive security report when done
+6. When done, call finish_scan with a comprehensive summary
 
-Be thorough but efficient. Focus on real, exploitable vulnerabilities. Avoid false positives.`;
+Time constraints:
+- You have a maximum of 30 minutes total. Be efficient.
+- Do NOT run long-running scans like full nmap port scans. Use quick targeted checks instead.
+- Do NOT use Bash to run tools that take more than 60 seconds. Use proxy_send_request for HTTP testing.
+- Prefer using the proxy and browser tools over raw Bash commands for web testing.
+- Move quickly: recon (2-3 min) → test vulnerabilities (15-20 min) → report (2 min).
+
+Focus on real, exploitable vulnerabilities. Avoid false positives. Always call finish_scan when done.`;
 }

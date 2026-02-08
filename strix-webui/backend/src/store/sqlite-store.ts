@@ -108,6 +108,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
 `);
 
+// Migrations — add new columns idempotently
+try { db.exec(`ALTER TABLE chat_sessions ADD COLUMN claude_session_id TEXT`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE chat_sessions ADD COLUMN cwd TEXT`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE chat_sessions ADD COLUMN claude_session_mode TEXT`); } catch { /* already exists */ }
+
 const stmts = {
   insertScan: db.prepare(`INSERT INTO scans (id, target, target_type, status, mode, created_at, started_at, completed_at, findings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   getScan: db.prepare(`SELECT * FROM scans WHERE id = ?`),
@@ -134,11 +139,13 @@ const stmts = {
   getLogsByScan: db.prepare(`SELECT * FROM logs WHERE scan_id = ? ORDER BY timestamp`),
   getRecentLogs: db.prepare(`SELECT * FROM logs WHERE scan_id = ? ORDER BY timestamp DESC LIMIT ?`),
 
-  insertChatSession: db.prepare(`INSERT INTO chat_sessions (id, user_id, scan_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`),
+  insertChatSession: db.prepare(`INSERT INTO chat_sessions (id, user_id, scan_id, claude_session_id, cwd, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
   getChatSession: db.prepare(`SELECT * FROM chat_sessions WHERE id = ? AND user_id = ?`),
   getChatSessionsByUser: db.prepare(`SELECT * FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC`),
   updateChatSessionTitle: db.prepare(`UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?`),
   updateChatSessionTimestamp: db.prepare(`UPDATE chat_sessions SET updated_at = ? WHERE id = ?`),
+  updateChatSessionClaudeId: db.prepare(`UPDATE chat_sessions SET claude_session_id = ?, claude_session_mode = ?, updated_at = ? WHERE id = ? AND user_id = ?`),
+  getChatSessionById: db.prepare(`SELECT * FROM chat_sessions WHERE id = ?`),
   deleteChatSession: db.prepare(`DELETE FROM chat_sessions WHERE id = ? AND user_id = ?`),
   deleteChatMessages: db.prepare(`DELETE FROM chat_messages WHERE session_id = ?`),
 
@@ -225,6 +232,9 @@ function rowToChatSession(row: Record<string, unknown>): ChatSession {
     id: row.id as string,
     userId: row.user_id as string,
     scanId: row.scan_id as string | null,
+    claudeSessionId: (row.claude_session_id as string) || null,
+    claudeSessionMode: (row.claude_session_mode as string) || null,
+    cwd: (row.cwd as string) || null,
     title: row.title as string,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
@@ -329,7 +339,7 @@ export const store = {
 
   // Chat sessions
   createChatSession(session: ChatSession): void {
-    stmts.insertChatSession.run(session.id, session.userId, session.scanId, session.title, session.createdAt, session.updatedAt);
+    stmts.insertChatSession.run(session.id, session.userId, session.scanId, session.claudeSessionId, session.cwd, session.title, session.createdAt, session.updatedAt);
   },
   getChatSession(id: string, userId: string): ChatSession | undefined {
     const row = stmts.getChatSession.get(id, userId) as Record<string, unknown> | undefined;
@@ -344,6 +354,13 @@ export const store = {
   deleteChatSession(id: string, userId: string): void {
     stmts.deleteChatMessages.run(id);
     stmts.deleteChatSession.run(id, userId);
+  },
+  updateChatSessionClaudeId(id: string, userId: string, claudeSessionId: string, mode?: string): void {
+    stmts.updateChatSessionClaudeId.run(claudeSessionId, mode || null, new Date().toISOString(), id, userId);
+  },
+  getChatSessionById(id: string): ChatSession | undefined {
+    const row = stmts.getChatSessionById.get(id) as Record<string, unknown> | undefined;
+    return row ? rowToChatSession(row) : undefined;
   },
   addChatMessage(message: ChatMessageRecord): void {
     stmts.insertChatMessage.run(message.id, message.sessionId, message.role, message.content, message.isExecute ? 1 : 0, message.blocks || null, message.createdAt);

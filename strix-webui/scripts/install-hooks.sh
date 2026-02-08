@@ -41,6 +41,7 @@ if (!settings.hooks) settings.hooks = {};
 settings.hooks.PreToolUse = settings.hooks.PreToolUse || [];
 settings.hooks.PostToolUse = settings.hooks.PostToolUse || [];
 settings.hooks.SubagentStop = settings.hooks.SubagentStop || [];
+settings.hooks.PreCompact = settings.hooks.PreCompact || [];
 
 // Remove any existing strix-webui hooks
 const filterStrix = (arr) => arr.filter(h =>
@@ -50,6 +51,7 @@ const filterStrix = (arr) => arr.filter(h =>
 settings.hooks.PreToolUse = filterStrix(settings.hooks.PreToolUse);
 settings.hooks.PostToolUse = filterStrix(settings.hooks.PostToolUse);
 settings.hooks.SubagentStop = filterStrix(settings.hooks.SubagentStop);
+settings.hooks.PreCompact = filterStrix(settings.hooks.PreCompact);
 
 // Add new hooks
 settings.hooks.PreToolUse.push({
@@ -65,6 +67,11 @@ settings.hooks.PostToolUse.push({
 settings.hooks.SubagentStop.push({
   matcher: '',
   hooks: ['node ' + hookDir + '/subagent-stop.js']
+});
+
+settings.hooks.PreCompact.push({
+  matcher: '',
+  hooks: ['node ' + hookDir + '/pre-compact.js']
 });
 
 fs.writeFileSync('$SETTINGS_FILE', JSON.stringify(settings, null, 2));

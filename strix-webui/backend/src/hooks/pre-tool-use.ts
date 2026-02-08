@@ -9,8 +9,9 @@ async function main(): Promise<void> {
     const timestamp = new Date().toISOString();
     const scanId = process.env.STRIX_SCAN_ID || "default";
 
-    // Detect Task tool (agent creation)
-    if (hookInput.tool_name === "Task" && hookInput.tool_use_id) {
+    // Detect agent creation (Task tool or MCP create_agent)
+    const toolName = hookInput.tool_name || "";
+    if ((toolName === "Task" || toolName.endsWith("create_agent")) && hookInput.tool_use_id) {
       const event: InternalEvent = {
         type: "AGENT_CREATING",
         timestamp,
@@ -36,8 +37,8 @@ async function main(): Promise<void> {
       writeEvent(event);
     }
 
-    // Detect vulnerability reports
-    if (hookInput.tool_name === "create_vulnerability_report" && hookInput.tool_input) {
+    // Detect vulnerability reports (tool name may be MCP-prefixed, e.g. mcp__strix-sandbox__create_vulnerability_report)
+    if (hookInput.tool_name?.endsWith("create_vulnerability_report") && hookInput.tool_input) {
       const ti = hookInput.tool_input;
       const event: InternalEvent = {
         type: "VULNERABILITY_FOUND",

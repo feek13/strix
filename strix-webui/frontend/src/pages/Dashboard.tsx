@@ -82,10 +82,10 @@ export default function Dashboard() {
           />
           <button
             onClick={handleStart}
-            disabled={!target.trim() || isStarting || !!activeScan}
+            disabled={!target.trim() || isStarting || activeScan?.status === "running"}
             className={clsx(
               "flex items-center gap-2 px-6 py-3 rounded-btn text-sm font-medium transition-all",
-              target.trim() && !isStarting && !activeScan
+              target.trim() && !isStarting && activeScan?.status !== "running"
                 ? "bg-strix-accent hover:bg-strix-accent-hover text-black"
                 : "bg-strix-elevated text-strix-text-muted cursor-not-allowed"
             )}
@@ -95,7 +95,7 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {activeScan && (
+        {activeScan?.status === "running" && (
           <p className="mt-2 text-xs text-severity-medium">
             A scan is already running. Stop it first to start a new one.
           </p>

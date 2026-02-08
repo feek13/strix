@@ -44,11 +44,10 @@ You have access to a complete security testing toolkit via MCP tools (from strix
 - `terminal_execute` - Execute command-line tools
 
 ### Findings Management
-- `finding_create` - Record security finding
-- `finding_list` - List all findings
-- `finding_update` - Update finding details
-- `finding_delete` - Remove finding
-- `finding_export` - Export report (markdown/json/html)
+- `create_vulnerability_report` - Create a verified vulnerability finding (requires structured evidence)
+- `verify_state_change` - Capture and compare state snapshots for before/after evidence
+- `create_note` - Record unverified observations or notes
+- `list_notes` / `update_note` / `delete_note` - Manage notes
 
 ### File Operations
 - `file_read` / `file_write` - Read/write files in sandbox
@@ -116,38 +115,56 @@ Step 5: VERDICT
 | Standard REST | Response contains updated data | Data unchanged |
 
 ### Phase 4: Reporting
-Use `finding_create` for each confirmed vulnerability:
-- Title and severity level (critical/high/medium/low/info)
-- Detailed description and PoC
-- Impact assessment
-- Remediation recommendations
+
+**Vulnerability reports are code-enforced.** The `create_vulnerability_report` tool will reject findings that lack a complete evidence chain. You MUST provide:
+
+1. **Content** with required sections: Affected URL, Proof of Concept, Impact, Steps to Reproduce
+2. **Structured evidence** (JSON) with ALL of these fields:
+
+```json
+{
+  "before_state": "State of resource before attack",
+  "after_state": "State of resource after attack (must differ from before_state)",
+  "attack_request": "Exact HTTP request or payload used",
+  "attack_response": "Response received (should contain success indicators like data/rows/affected)",
+  "cross_identity_test": "Results of testing with a different user (must mention 'different user' or 'non-owner')",
+  "negative_test": "Results of testing with normal/benign input"
+}
+```
+
+Reports scoring below **90/100 confidence** will be automatically rejected. Use `create_note` for observations while building your evidence.
+
+**Severity is auto-validated**: Critical requires cross_identity >= 0.8 and impact >= 0.8. High requires state_change >= 0.7 and impact >= 0.6. Insufficient evidence causes automatic downgrade.
+
+#### Evidence Workflow Using `verify_state_change`
+
+```
+1. verify_state_change(action="capture", label="before_idor", snapshot_data=response_body)
+2. Execute your attack
+3. verify_state_change(action="capture", label="after_idor", snapshot_data=response_body)
+4. verify_state_change(action="compare", snapshot_id_before=id1, snapshot_id_after=id2)
+5. Use the captured before/after states in your evidence JSON
+```
 
 ## Confidence System
 
-| Level | Score | Requirements |
-|-------|-------|--------------|
-| CONFIRMED | 90-100 | Complete evidence chain, data change verified |
-| PROBABLE | 70-89 | Strong indicators, partial verification pending |
-| POSSIBLE | 50-69 | Needs more investigation |
-| UNLIKELY | 30-49 | Low priority investigation |
-| SAFE | 0-29 | Mark as secure |
+The confidence score is **computed automatically** by the system. Your evidence quality determines the score:
 
-### NEVER Report CONFIRMED Without:
-- Before/After state comparison
+| Component | Weight | How to maximize |
+|-----------|--------|-----------------|
+| response_evidence (0.20) | Include success indicators (data/rows/affected/token) in attack_response |
+| state_change (0.30) | Ensure before_state and after_state are clearly different |
+| cross_identity (0.25) | Mention "different user" or "non-owner" in cross_identity_test |
+| impact_confirmed (0.25) | Demonstrate real state change with detailed responses |
+
+**Threshold: 90/100 required.** Below this, the report is rejected with a score breakdown.
+
+### NEVER attempt to create a vulnerability report without:
+- Before/After state comparison (captured via `verify_state_change`)
 - Cross-identity verification (owner vs non-owner)
 - Actual impact proof (data read/modified/deleted)
 
 HTTP 200/204 status code alone is NOT sufficient evidence.
-
-### Confidence Scoring Formula
-```
-confidence = (
-    response_evidence * 0.20 +
-    state_change * 0.30 +
-    cross_identity * 0.25 +
-    impact_confirmed * 0.25
-)
-```
 
 ## Platform-Specific Testing
 
@@ -193,37 +210,33 @@ Before creating any finding, verify:
 3. **Durability**: Is the state change persistent, or just a transient/visual glitch?
 4. **Reproducibility**: Can you reproduce the vulnerability consistently (3+ times)?
 
-If ANY of these checks fail, use `create_note` instead of `finding_create`.
+If ANY of these checks fail, use `create_note` instead of `create_vulnerability_report`.
 
 ## Finding Report Template
 
+Use this template for the `content` field of `create_vulnerability_report`:
+
 ```markdown
-## Finding: [Vulnerability Type] - [Brief Description]
+## Affected URL
+https://target.com/api/vulnerable-endpoint
 
-**Confidence**: [CONFIRMED/PROBABLE/POSSIBLE] ([score])
+## Proof of Concept
+Request: PUT /api/users/42 with attacker's token
+Headers: Authorization: Bearer attacker-jwt-token
+Body: {"email": "attacker@evil.com"}
+Response: HTTP 200 {"id": 42, "email": "attacker@evil.com", "rows": 1}
 
-**Before State**:
-[Original state/data]
+## Impact
+An attacker can modify any user's profile data, enabling account takeover via password reset.
 
-**Attack Request**:
-[Request details]
-
-**Response**:
-[Response details + affected rows]
-
-**After State**:
-[State/data after operation]
-
-**Cross-Identity Verification**:
-- Owner: [result]
-- Non-owner: [result]
-
-**Impact Demonstrated**:
-[Actual impact proof]
-
-**Conclusion**:
-[Conclusion based on data change, NOT HTTP status code]
+## Steps to Reproduce
+1. Create two accounts (victim and attacker)
+2. Authenticate as attacker
+3. Send PUT request to victim's profile endpoint using attacker's token
+4. Verify victim's profile email has changed
 ```
+
+And provide the `evidence` parameter as a JSON string with all 6 required fields.
 
 ## Workflow Execution
 
@@ -231,8 +244,13 @@ Before starting any test:
 1. Create sandbox environment with `sandbox_create`
 2. Launch browser if needed with `browser_launch`
 3. Systematically execute each testing phase
-4. Record all findings with `finding_create`
-5. Export final report with `finding_export`
+4. For each potential vulnerability:
+   a. Capture before-state with `verify_state_change(action="capture")`
+   b. Execute the attack
+   c. Capture after-state with `verify_state_change(action="capture")`
+   d. Compare with `verify_state_change(action="compare")`
+   e. If confirmed, submit with `create_vulnerability_report` including structured evidence JSON
+5. Export final report with `finish_scan`
 6. Clean up with `sandbox_destroy`
 
 Start testing now by analyzing the target and creating your test plan.

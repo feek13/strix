@@ -241,6 +241,9 @@ export interface ChatSession {
   id: string;
   userId: string;
   scanId: string | null;
+  claudeSessionId: string | null;  // maps to Claude CLI --session-id UUID
+  claudeSessionMode: string | null; // mode the CLI session was created with ("ask" | "execute")
+  cwd: string | null;              // working directory for this session
   title: string;
   createdAt: string;
   updatedAt: string;

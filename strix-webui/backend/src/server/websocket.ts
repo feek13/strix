@@ -252,6 +252,22 @@ export function createWebSocketServer(port: number = 3001): WebSocketServer {
           if (scan) {
             broadcast({ type: "SCAN_UPDATED", payload: { id: scan.id, status: scan.status, completedAt: scan.completedAt } });
           }
+
+          // Mark all running agents for this scan as completed
+          const scanAgents = store.getAgentsByScan(event.scanId);
+          for (const agent of scanAgents) {
+            if (agent.status === "running") {
+              store.updateAgentStatus(agent.id, "completed", event.timestamp);
+              broadcast({
+                type: "AGENT_STATUS_CHANGED",
+                payload: { id: agent.id, status: "completed", finishedAt: event.timestamp },
+              });
+              agentLastActivity.delete(agent.id);
+              for (const [sid, aid] of sessionAgentMap.entries()) {
+                if (aid === agent.id) { sessionAgentMap.delete(sid); break; }
+              }
+            }
+          }
           break;
         }
       }
