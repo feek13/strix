@@ -4,10 +4,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   MessageSquare, Send, Loader2, Bot, Zap, Plus, Trash2,
-  ChevronRight, Check, XCircle, Terminal,
+  ChevronRight, Check, XCircle, Terminal, FolderOpen, Download,
 } from "lucide-react";
 import type { ChatSession } from "../types";
 import * as chatApi from "../lib/chatApi";
+import { generateChatMarkdown, type ExportMessage } from "../lib/chatExport";
+import ExportPreviewModal from "../components/ExportPreviewModal";
 
 interface ToolBlock {
   id: string;
@@ -28,6 +30,7 @@ interface ChatMessage {
   content: string;
   isExecute?: boolean;
   blocks?: StreamBlock[];
+  createdAt?: string;
 }
 
 const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }) {
@@ -106,6 +109,49 @@ export default function AskAI() {
   const [streamBlocks, setStreamBlocks] = useState<StreamBlock[]>([]);
   const [streamPhase, setStreamPhase] = useState<"init" | "working" | "done" | null>(null);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const [compacting, setCompacting] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+
+  // Typewriter animation refs
+  const typewriterTargetRef = useRef("");
+  const typewriterPosRef = useRef(0);
+  const typewriterRafRef = useRef<number>(0);
+
+  const runTypewriter = useCallback(() => {
+    const target = typewriterTargetRef.current;
+    const pos = typewriterPosRef.current;
+    if (pos < target.length) {
+      // Adaptive speed: faster for longer remaining text
+      const remaining = target.length - pos;
+      const step = remaining > 500 ? 20 : remaining > 200 ? 12 : remaining > 50 ? 6 : 3;
+      const newPos = Math.min(pos + step, target.length);
+      typewriterPosRef.current = newPos;
+      setStreamingText(target.slice(0, newPos));
+      typewriterRafRef.current = requestAnimationFrame(runTypewriter);
+    } else {
+      typewriterRafRef.current = 0;
+    }
+  }, []);
+
+  const startTypewriter = useCallback((fullText: string) => {
+    typewriterTargetRef.current = fullText;
+    if (!typewriterRafRef.current) {
+      typewriterRafRef.current = requestAnimationFrame(runTypewriter);
+    }
+  }, [runTypewriter]);
+
+  const stopTypewriter = useCallback(() => {
+    if (typewriterRafRef.current) {
+      cancelAnimationFrame(typewriterRafRef.current);
+      typewriterRafRef.current = 0;
+    }
+    // Show full text immediately
+    if (typewriterTargetRef.current) {
+      setStreamingText(typewriterTargetRef.current);
+    }
+    typewriterTargetRef.current = "";
+    typewriterPosRef.current = 0;
+  }, []);
 
   // Load sessions on mount
   const loadSessions = useCallback(async () => {
@@ -141,6 +187,7 @@ export default function AskAI() {
         content: m.content,
         isExecute: m.isExecute,
         blocks: m.blocks ? JSON.parse(m.blocks) : undefined,
+        createdAt: m.createdAt,
       }));
       setMessages(chatMsgs);
       setActiveSessionId(sessionId);
@@ -186,14 +233,39 @@ export default function AskAI() {
     const q = question.trim();
     if (!q || asking) return;
 
+    // Handle slash commands
+    if (q.startsWith("/")) {
+      const cmd = q.split(" ")[0].toLowerCase();
+      switch (cmd) {
+        case "/status": {
+          setQuestion("");
+          const s = sessions.find((s) => s.id === activeSessionId);
+          const statusMsg: ChatMessage = {
+            role: "assistant",
+            content: s
+              ? `**Session Status**\n- **Session ID**: \`${s.id.slice(0, 8)}...\`\n- **Claude Session**: ${s.claudeSessionId ? `\`${s.claudeSessionId.slice(0, 8)}...\` (resumable)` : "Not initialized"}\n- **Working Directory**: ${s.cwd || "Default (home)"}\n- **Messages**: ${messages.length}\n- **Created**: ${new Date(s.createdAt).toLocaleString()}`
+              : "No active session.",
+          };
+          setMessages((prev) => [...prev, statusMsg]);
+          return;
+        }
+        case "/clear":
+          setQuestion("");
+          setMessages([]);
+          return;
+      }
+      // Other commands pass through to Claude
+    }
+
     const isExec = executeMode;
-    const userMsg: ChatMessage = { role: "user", content: q, isExecute: isExec };
+    const userMsg: ChatMessage = { role: "user", content: q, isExecute: isExec, createdAt: new Date().toISOString() };
     setMessages((prev) => [...prev, userMsg]);
     setQuestion("");
     setAsking(true);
     setStreamingText("");
     setStreamBlocks([]);
     setStreamPhase(isExec ? "init" : null);
+    setCompacting(false);
 
     // Auto-create session if none active
     let sessionId = activeSessionId;
@@ -225,8 +297,11 @@ export default function AskAI() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: q,
-          history: messages.map((m) => ({ role: m.role, content: m.content })),
+          sessionId,
           mode: isExec ? "execute" : "ask",
+          // Always send history — backend decides whether to use it
+          // (needed when mode changes and a new CLI session is created)
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
 
@@ -258,21 +333,31 @@ export default function AskAI() {
             const evt = JSON.parse(raw);
             if (evt.error) throw new Error(evt.error);
 
-            if (isExec && evt.type) {
+            if (evt.type) {
               switch (evt.type) {
                 case "init":
                   setStreamPhase("working");
                   break;
+                case "compacting":
+                  setCompacting(true);
+                  break;
                 case "text": {
                   const text = evt.text || "";
                   fullText += text;
-                  const last = blocks[blocks.length - 1];
-                  if (last && last.type === "text") {
-                    last.text = (last.text || "") + text;
+                  // Compaction done once text starts flowing again
+                  if (compacting) setCompacting(false);
+                  if (isExec) {
+                    const last = blocks[blocks.length - 1];
+                    if (last && last.type === "text") {
+                      last.text = (last.text || "") + text;
+                    } else {
+                      blocks.push({ type: "text", text });
+                    }
+                    setStreamBlocks([...blocks]);
                   } else {
-                    blocks.push({ type: "text", text });
+                    // Typewriter animation for ask mode
+                    startTypewriter(fullText);
                   }
-                  setStreamBlocks([...blocks]);
                   break;
                 }
                 case "tool_use": {
@@ -299,12 +384,19 @@ export default function AskAI() {
                   break;
                 }
                 case "result":
+                  // Use result text as fallback if no text events were received
+                  if (!fullText && evt.result) {
+                    fullText = evt.result;
+                    if (!isExec) {
+                      startTypewriter(fullText);
+                    } else {
+                      blocks.push({ type: "text", text: fullText });
+                      setStreamBlocks([...blocks]);
+                    }
+                  }
                   setStreamPhase("done");
                   break;
               }
-            } else if (evt.text) {
-              fullText += evt.text;
-              setStreamingText(fullText);
             }
           } catch (e) {
             if (e instanceof Error && e.message !== "[DONE]") throw e;
@@ -312,24 +404,40 @@ export default function AskAI() {
         }
       }
 
-      const assistantMsg: ChatMessage = isExec
-        ? { role: "assistant", content: fullText, blocks: blocks.length > 0 ? [...blocks] : undefined }
-        : { role: "assistant", content: fullText };
-      setMessages((prev) => [...prev, assistantMsg]);
+      // Stop typewriter and show full text
+      stopTypewriter();
+
+      // Don't add empty assistant messages
+      if (fullText || blocks.length > 0) {
+        const assistantMsg: ChatMessage = isExec
+          ? { role: "assistant", content: fullText, blocks: blocks.length > 0 ? [...blocks] : undefined, createdAt: new Date().toISOString() }
+          : { role: "assistant", content: fullText, createdAt: new Date().toISOString() };
+        setMessages((prev) => [...prev, assistantMsg]);
+
+        if (sessionId) {
+          try {
+            await chatApi.saveMessage(sessionId, {
+              role: "assistant",
+              content: fullText,
+              blocks: assistantMsg.blocks ? JSON.stringify(assistantMsg.blocks) : undefined,
+            });
+          } catch { /* ignore */ }
+        }
+      }
+
       setStreamingText("");
       setStreamBlocks([]);
       setStreamPhase(null);
 
+      // Refresh sessions to pick up claudeSessionId set by backend
       if (sessionId) {
         try {
-          await chatApi.saveMessage(sessionId, {
-            role: "assistant",
-            content: fullText,
-            blocks: assistantMsg.blocks ? JSON.stringify(assistantMsg.blocks) : undefined,
-          });
+          const updated = await chatApi.listSessions();
+          setSessions(updated);
         } catch { /* ignore */ }
       }
     } catch (err) {
+      stopTypewriter();
       const msg = err instanceof Error ? err.message : "Unknown error";
       setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
     } finally {
@@ -337,6 +445,7 @@ export default function AskAI() {
       setStreamingText("");
       setStreamBlocks([]);
       setStreamPhase(null);
+      setCompacting(false);
     }
   };
 
@@ -389,7 +498,10 @@ export default function AskAI() {
                   )}
                 >
                   <div className="flex items-center gap-2">
-                    <MessageSquare size={12} className="shrink-0 opacity-50" />
+                    <span className={clsx(
+                      "w-2 h-2 rounded-full shrink-0",
+                      s.claudeSessionId ? "bg-strix-accent" : "bg-strix-text-muted/40"
+                    )} title={s.claudeSessionId ? "Resumable session" : "Not initialized"} />
                     <span className="text-xs truncate flex-1">{s.title}</span>
                     <button
                       onClick={(e) => handleDeleteSession(s.id, e)}
@@ -398,8 +510,14 @@ export default function AskAI() {
                       <Trash2 size={11} />
                     </button>
                   </div>
-                  <div className="text-[10px] text-strix-text-muted mt-0.5 ml-5">
-                    {formatRelativeTime(s.updatedAt)}
+                  <div className="text-[10px] text-strix-text-muted mt-0.5 ml-4 flex items-center gap-1.5">
+                    <span>{formatRelativeTime(s.updatedAt)}</span>
+                    {s.cwd && (
+                      <>
+                        <span className="opacity-30">|</span>
+                        <span className="truncate" title={s.cwd}>{s.cwd.replace(/^\/Users\/[^/]+/, "~")}</span>
+                      </>
+                    )}
                   </div>
                 </button>
               ))}
@@ -417,6 +535,27 @@ export default function AskAI() {
               <span className="text-sm font-medium truncate flex-1">
                 {activeSession?.title || "New Chat"}
               </span>
+              {activeSession?.cwd && (
+                <div className="flex items-center gap-1 text-[10px] text-strix-text-muted" title={activeSession.cwd}>
+                  <FolderOpen size={10} />
+                  <span className="truncate max-w-[150px]">{activeSession.cwd.replace(/^\/Users\/[^/]+/, "~")}</span>
+                </div>
+              )}
+              {activeSession?.claudeSessionId && (
+                <span className="text-[10px] text-strix-accent/60 bg-strix-accent/10 px-1.5 py-0.5 rounded" title="Persistent Claude CLI session">
+                  resumable
+                </span>
+              )}
+              {messages.length > 0 && (
+                <button
+                  onClick={() => setShowExport(true)}
+                  className="flex items-center gap-1 px-2 py-1 text-[10px] text-strix-text-muted hover:text-strix-accent bg-strix-elevated hover:bg-strix-bg border border-strix-border-subtle rounded-md transition-colors"
+                  title="Export chat"
+                >
+                  <Download size={10} />
+                  Export
+                </button>
+              )}
               <div className="flex items-center gap-1.5 text-[10px] text-strix-text-muted">
                 {activeSession && formatRelativeTime(activeSession.updatedAt)}
               </div>
@@ -568,11 +707,29 @@ export default function AskAI() {
                   </div>
                 )}
 
+                {/* Context compaction animation */}
+                {compacting && (
+                  <div className="flex items-center gap-3 px-4 py-3 bg-strix-elevated border border-strix-accent/20 rounded-xl animate-fade-in">
+                    <div className="relative w-8 h-8 shrink-0">
+                      <div className="absolute inset-0 rounded-full border-2 border-strix-accent/30 border-t-strix-accent animate-spin" />
+                      <div className="absolute inset-2.5 rounded-full bg-strix-accent/20 animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="text-sm text-white font-medium">Compressing context</div>
+                      <div className="text-xs text-strix-text-muted">Optimizing conversation memory...</div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Loading indicator */}
-                {asking && !streamingText && streamBlocks.length === 0 && (
-                  <div className={clsx("flex items-center gap-2 text-sm", streamPhase ? "text-severity-high" : "text-strix-text-muted")}>
+                {asking && !streamingText && streamBlocks.length === 0 && !compacting && (
+                  <div className={clsx("flex items-center gap-2 text-sm", streamPhase && executeMode ? "text-severity-high" : streamPhase ? "text-strix-accent" : "text-strix-text-muted")}>
                     <Loader2 size={16} className="animate-spin" />
-                    {streamPhase === "init" ? "Initializing AI agent..." : streamPhase === "working" ? "Executing..." : "Thinking..."}
+                    {streamPhase === "init"
+                      ? (executeMode ? "Initializing AI agent..." : "Connecting...")
+                      : streamPhase === "working"
+                        ? (executeMode ? "Executing..." : "Thinking...")
+                        : "Thinking..."}
                   </div>
                 )}
 
@@ -648,6 +805,20 @@ export default function AskAI() {
           </div>
         )}
       </div>
+
+      {activeSessionId && (
+        <ExportPreviewModal
+          isOpen={showExport}
+          onClose={() => setShowExport(false)}
+          sessionId={activeSessionId}
+          sessionTitle={activeSession?.title || "Chat"}
+          markdownContent={generateChatMarkdown(
+            activeSession?.title || "Chat",
+            messages as ExportMessage[],
+            activeSession?.createdAt,
+          )}
+        />
+      )}
     </div>
   );
 }

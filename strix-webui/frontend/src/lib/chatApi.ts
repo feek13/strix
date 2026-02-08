@@ -12,11 +12,11 @@ export async function listSessions(): Promise<ChatSession[]> {
   return res.json();
 }
 
-export async function createSession(scanId?: string, title?: string): Promise<ChatSession> {
+export async function createSession(scanId?: string, title?: string, cwd?: string): Promise<ChatSession> {
   const res = await fetch("/api/chat/sessions", {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify({ scanId, title }),
+    body: JSON.stringify({ scanId, title, cwd }),
   });
   if (!res.ok) throw new Error("Failed to create session");
   return res.json();
@@ -56,4 +56,20 @@ export async function saveMessage(
   });
   if (!res.ok) throw new Error("Failed to save message");
   return res.json();
+}
+
+export async function exportSessionPDF(sessionId: string): Promise<Blob> {
+  const res = await fetch(`/api/chat/sessions/${sessionId}/export/pdf`, {
+    headers: { "X-Strix-User-Id": getUserId() },
+  });
+  if (!res.ok) throw new Error("Failed to export PDF");
+  return res.blob();
+}
+
+export async function exportSessionDOCX(sessionId: string): Promise<Blob> {
+  const res = await fetch(`/api/chat/sessions/${sessionId}/export/docx`, {
+    headers: { "X-Strix-User-Id": getUserId() },
+  });
+  if (!res.ok) throw new Error("Failed to export DOCX");
+  return res.blob();
 }
