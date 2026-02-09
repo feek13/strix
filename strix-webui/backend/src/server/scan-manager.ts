@@ -274,20 +274,62 @@ function buildPrompt(target: string, targetType: string, mode: string): string {
 
 ${modeInstruction}
 
-Instructions:
-1. Start by creating a sandbox environment
-2. Perform quick reconnaissance to understand the target (spend no more than 2-3 minutes on recon)
-3. Identify potential vulnerabilities based on recon findings
-4. Test and validate each finding with proof-of-concept
-5. Document all verified vulnerabilities using create_vulnerability_report
-6. When done, call finish_scan with a comprehensive summary
+## Workflow
+1. Create a sandbox environment
+2. Quick recon: identify tech stack, endpoints, attack surface (2-3 min)
+3. Test vulnerabilities with DEEP VERIFICATION (see below)
+4. Document ONLY verified findings using create_vulnerability_report
+5. Call finish_scan with a comprehensive summary
 
-Time constraints:
-- You have a maximum of 30 minutes total. Be efficient.
-- Do NOT run long-running scans like full nmap port scans. Use quick targeted checks instead.
-- Do NOT use Bash to run tools that take more than 60 seconds. Use proxy_send_request for HTTP testing.
-- Prefer using the proxy and browser tools over raw Bash commands for web testing.
-- Move quickly: recon (2-3 min) → test vulnerabilities (15-20 min) → report (2 min).
+## FALSE POSITIVE PREVENTION (CRITICAL — read carefully)
 
-Focus on real, exploitable vulnerabilities. Avoid false positives. Always call finish_scan when done.`;
+### Core Principle: HTTP Status Code ≠ Operation Success
+Many APIs (especially Supabase/PostgREST) return HTTP 200/204 even when authorization BLOCKS the operation.
+The ONLY reliable way to confirm a write vulnerability is to verify ACTUAL DATA CHANGE.
+
+### 5-Step Deep Verification — REQUIRED for EVERY finding
+Before reporting ANY vulnerability, you MUST complete ALL 5 steps:
+
+1. **BEFORE STATE**: GET the target resource, save the original data
+2. **EXECUTE ATTACK**: Perform the operation. For PostgREST, add header: Prefer: return=representation
+3. **ANALYZE RESPONSE**:
+   - [] (empty array) = 0 rows affected = BLOCKED by RLS → NOT a vulnerability
+   - [{...}] with modified data = actual change → VULNERABILITY
+   - 401/403 = permission denied → NOT a vulnerability
+4. **AFTER STATE**: GET the target resource again, save the current data
+5. **VERDICT**: Compare step 1 vs step 4.
+   - before === after → SAFE (authorization blocked the operation) → DO NOT REPORT
+   - before !== after → VULNERABLE → report with before/after evidence
+
+### Per-Operation Rules
+- Do NOT claim "Full CRUD" unless you separately verified Create, Read, Update, AND Delete
+- If only READ works, report it as READ-ONLY access, NOT "Full CRUD"
+- Test each operation individually: INSERT a record → verify it exists; PATCH a field → verify it changed; DELETE → verify it's gone
+
+### Severity Rules
+| Actual Impact (verified) | Maximum Severity |
+|--------------------------|-----------------|
+| READ-only on non-sensitive data | medium |
+| READ on sensitive data (PII, credentials, private messages) | high |
+| Verified WRITE/UPDATE on other users' data | high or critical |
+| Verified DELETE of other users' data | critical |
+| Admin panel publicly accessible | critical |
+
+### Deduplication
+- Do NOT report the same underlying issue multiple times with different titles
+- If 30 tables all lack RLS for READ, that is ONE finding ("Missing RLS on N tables"), not 30
+- Group related issues into a single comprehensive finding
+
+### What NOT to report
+- HTTP 200 on a write request where data did NOT actually change
+- "Potential" vulnerabilities without before/after proof
+- Features working as designed (e.g., public API returning public data)
+- Issues you cannot reproduce consistently
+
+## Time constraints
+- Be efficient. Do NOT run full port scans or tools that take >60 seconds.
+- Use proxy_send_request for HTTP testing, not raw curl via Bash.
+- Move quickly: recon (2-3 min) → test + verify (15-20 min) → report (2 min).
+
+Accuracy over volume. A report with 3 verified findings is better than 15 with false positives. Always call finish_scan when done.`;
 }
