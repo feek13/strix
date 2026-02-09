@@ -410,7 +410,11 @@ export default function ReportPreview() {
           sessionId,
           mode: isExec ? "execute" : "ask",
           // Always send history — backend decides whether to use it
-          history: messages.map((m) => ({ role: m.role, content: m.content })),
+          // Strip report-context delimiters from user messages to avoid bloating the prompt
+          history: messages.map((m) => ({
+            role: m.role,
+            content: m.role === "user" ? parseReportContext(m.content).question : m.content,
+          })),
         }),
       });
 
