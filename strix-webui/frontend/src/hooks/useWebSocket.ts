@@ -1,4 +1,5 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useCallback, useState, createElement } from "react";
+import type { ReactNode } from "react";
 import { useScanStore } from "../store/scanStore";
 import { useAgentStore } from "../store/agentStore";
 import { useToolStore } from "../store/toolStore";
@@ -10,7 +11,17 @@ export type ConnectionStatus = "connected" | "disconnected" | "connecting";
 
 const WS_URL = `ws://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:3001`;
 
-export function useWebSocket(): { send: (msg: unknown) => void; status: ConnectionStatus } {
+interface WebSocketContextValue {
+  send: (msg: unknown) => void;
+  status: ConnectionStatus;
+}
+
+const WebSocketContext = createContext<WebSocketContextValue>({
+  send: () => {},
+  status: "disconnected",
+});
+
+export function WebSocketProvider({ children }: { children: ReactNode }) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const pingIntervalRef = useRef<ReturnType<typeof setInterval>>();
@@ -143,5 +154,9 @@ export function useWebSocket(): { send: (msg: unknown) => void; status: Connecti
     }
   }, []);
 
-  return { send, status };
+  return createElement(WebSocketContext.Provider, { value: { send, status } }, children);
+}
+
+export function useWebSocket(): WebSocketContextValue {
+  return useContext(WebSocketContext);
 }

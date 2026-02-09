@@ -22,15 +22,15 @@ export default function Findings() {
   };
 
   const badgeColors: Record<string, string> = {
-    critical: "bg-severity-critical text-white",
-    high: "bg-severity-high text-white",
-    medium: "bg-severity-medium text-black",
-    low: "bg-severity-low text-white",
-    info: "bg-strix-text-muted text-white",
+    critical: "bg-severity-critical text-strix-text-on-accent",
+    high: "bg-severity-high text-strix-text-on-accent",
+    medium: "bg-severity-medium text-strix-text-on-accent",
+    low: "bg-severity-low text-strix-text-on-accent",
+    info: "bg-strix-text-muted text-strix-text-on-accent",
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto animate-fade-in">
+    <div className="p-4 md:p-6 max-w-4xl mx-auto animate-fade-in">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold">Findings</h1>
         {scan && (
@@ -49,8 +49,8 @@ export default function Findings() {
         <div className="space-y-3">
           {sorted.map((v) => (
             <div key={v.id} className={clsx("border rounded-card p-5", colors[v.severity])}>
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
+              <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
+                <div className="flex items-center gap-3 flex-wrap">
                   <span className={clsx("text-[10px] px-2 py-1 rounded-btn font-bold uppercase", badgeColors[v.severity])}>
                     {v.severity}
                   </span>

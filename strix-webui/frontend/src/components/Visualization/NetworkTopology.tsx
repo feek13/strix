@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect, useState, useRef } from "react";
+import { memo, useMemo, useCallback, useEffect, useState, useRef, type CSSProperties } from "react";
 import {
   ReactFlow,
   Background,
@@ -23,6 +23,8 @@ import clsx from "clsx";
 import { Globe, Bot, Wrench, ShieldAlert } from "lucide-react";
 import type { SelectedNode } from "../../types/nodeSelection";
 import { TOOL_CATEGORIES } from "../../types";
+import { useTheme } from "../../hooks/useTheme";
+import { getThemeColors } from "../../lib/themeColors";
 
 // ==================== Constants ====================
 
@@ -91,7 +93,7 @@ const TOOL_CATEGORY_COLORS: Record<string, { border: string; text: string }> = {
 
 // ==================== Custom Nodes ====================
 
-function TargetNode({ data }: { data: { label: string; status: string; selected?: boolean } }) {
+const TargetNode = memo(function TargetNode({ data }: { data: { label: string; status: string; selected?: boolean } }) {
   return (
     <div
       className={clsx(
@@ -104,7 +106,7 @@ function TargetNode({ data }: { data: { label: string; status: string; selected?
     >
       <Handle type="source" position={Position.Bottom} className="!bg-strix-accent !w-2 !h-2" />
       <Globe size={20} className="text-strix-accent mx-auto mb-1" />
-      <div className="text-xs font-medium text-white truncate max-w-[160px]">{data.label}</div>
+      <div className="text-xs font-medium text-strix-text truncate max-w-[160px]">{data.label}</div>
       <div className="flex items-center justify-center gap-1.5 mt-1">
         <span
           className={clsx(
@@ -119,9 +121,9 @@ function TargetNode({ data }: { data: { label: string; status: string; selected?
       </div>
     </div>
   );
-}
+});
 
-function AgentNode({ data }: { data: { label: string; status: string; task: string; selected?: boolean } }) {
+const AgentNode = memo(function AgentNode({ data }: { data: { label: string; status: string; task: string; selected?: boolean } }) {
   const isRunning = data.status === "running";
   return (
     <div
@@ -136,7 +138,7 @@ function AgentNode({ data }: { data: { label: string; status: string; task: stri
       <Handle type="source" position={Position.Bottom} className="!bg-strix-border !w-2 !h-2" />
       <div className="flex items-center gap-1.5 mb-1">
         <Bot size={14} className={isRunning ? "text-strix-accent" : "text-strix-text-muted"} />
-        <span className="text-xs font-medium text-white truncate max-w-[100px]">{data.label}</span>
+        <span className="text-xs font-medium text-strix-text truncate max-w-[100px]">{data.label}</span>
       </div>
       <div className={clsx("text-[10px] flex items-center gap-1", isRunning ? "text-strix-accent" : "text-strix-text-muted")}>
         <span
@@ -153,9 +155,9 @@ function AgentNode({ data }: { data: { label: string; status: string; task: stri
       </div>
     </div>
   );
-}
+});
 
-function ToolNode({ data }: { data: { label: string; status: string; duration?: number; category: string; selected?: boolean } }) {
+const ToolNode = memo(function ToolNode({ data }: { data: { label: string; status: string; duration?: number; category: string; selected?: boolean } }) {
   const catColors = TOOL_CATEGORY_COLORS[data.category] || TOOL_CATEGORY_COLORS.other;
   const isRunning = data.status === "running";
   const isError = data.status === "error";
@@ -190,9 +192,9 @@ function ToolNode({ data }: { data: { label: string; status: string; duration?: 
       )}
     </div>
   );
-}
+});
 
-function FindingNode({ data }: { data: { label: string; severity: string; agentName?: string; selected?: boolean } }) {
+const FindingNode = memo(function FindingNode({ data }: { data: { label: string; severity: string; agentName?: string; selected?: boolean } }) {
   const borderColor = SEVERITY_STROKE[data.severity] || SEVERITY_STROKE.info;
   const colors: Record<string, string> = {
     critical: "text-severity-critical",
@@ -232,7 +234,7 @@ function FindingNode({ data }: { data: { label: string; severity: string; agentN
       </div>
     </div>
   );
-}
+});
 
 const nodeTypes: NodeTypes = {
   target: TargetNode,
@@ -243,7 +245,7 @@ const nodeTypes: NodeTypes = {
 
 // ==================== SVG Defs for Edge Glow ====================
 
-function EdgeDefs() {
+function EdgeDefs({ accent, border }: { accent: string; border: string }) {
   return (
     <svg style={{ position: "absolute", width: 0, height: 0 }}>
       <defs>
@@ -256,7 +258,7 @@ function EdgeDefs() {
           markerHeight={6}
           orient="auto-start-reverse"
         >
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#22C55E" />
+          <path d="M 0 0 L 10 5 L 0 10 z" fill={accent} />
         </marker>
         <marker
           id="arrow-gray"
@@ -267,9 +269,9 @@ function EdgeDefs() {
           markerHeight={6}
           orient="auto-start-reverse"
         >
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#3A3A3A" />
+          <path d="M 0 0 L 10 5 L 0 10 z" fill={border} />
         </marker>
-        <filter id="glow-green" x="-50%" y="-50%" width="200%" height="200%">
+        <filter id="glow-green" x="-10%" y="-10%" width="120%" height="120%">
           <feGaussianBlur stdDeviation="3" result="blur" />
           <feMerge>
             <feMergeNode in="blur" />
@@ -351,8 +353,9 @@ function calculateLayout(
   tools: ReturnType<typeof useToolStore.getState>["tools"],
   vulns: ReturnType<typeof useVulnerabilityStore.getState>["vulnerabilities"],
   scan: ReturnType<typeof useScanStore.getState>["activeScan"],
-  selectedNodeId: string | null
+  themeColors?: { accent: string; border: string; borderSubtle: string }
 ): { nodes: Node[]; edges: Edge[] } {
+  const tc = themeColors ?? { accent: "#22C55E", border: "#3A3A3A", borderSubtle: "#2A2A2A" };
   const nodes: Node[] = [];
   const edges: Edge[] = [];
 
@@ -383,7 +386,7 @@ function calculateLayout(
     id: "target",
     type: "target",
     position: { x: -NODE_WIDTH / 2, y: 0 },
-    data: { label: scan.target, status: scan.status, selected: selectedNodeId === "target" },
+    data: { label: scan.target, status: scan.status },
   });
 
   // -- Agent nodes --
@@ -400,7 +403,6 @@ function calculateLayout(
         label: agent.name,
         status: agent.status,
         task: agent.task,
-        selected: selectedNodeId === agent.id,
       },
     });
 
@@ -413,9 +415,9 @@ function calculateLayout(
       target: agent.id,
       animated: isRunning,
       style: {
-        stroke: isRunning ? "#22C55E" : "#3A3A3A",
+        stroke: isRunning ? tc.accent : tc.border,
         strokeWidth: isRunning ? 2 : 1.5,
-        ...(isRunning ? { filter: "url(#glow-green)" } : {}),
+        ...(isRunning ? { filter: "url(#glow-green)", willChange: "transform" as const } : {}),
         ...(isChild ? { strokeDasharray: "5 5" } : {}),
       },
       markerEnd: isRunning ? "url(#arrow-green)" : "url(#arrow-gray)",
@@ -488,7 +490,6 @@ function calculateLayout(
           status: tool.status,
           duration: tool.duration,
           category,
-          selected: selectedNodeId === tool.id,
         },
       });
 
@@ -501,8 +502,9 @@ function calculateLayout(
         style: {
           stroke: isVulnReportTool(tool.toolName)
             ? "#FF6B0066"
-            : isToolRunning ? "#22C55E44" : "#2A2A2A",
+            : isToolRunning ? `${tc.accent}44` : tc.borderSubtle,
           strokeWidth: isVulnReportTool(tool.toolName) ? 1.5 : 1,
+          ...(isToolRunning ? { willChange: "transform" as const } : {}),
         },
       });
     }
@@ -540,7 +542,6 @@ function calculateLayout(
           label: v.title,
           severity: v.severity,
           agentName,
-          selected: selectedNodeId === nodeId,
         },
       });
 
@@ -615,7 +616,7 @@ function Legend({ hiddenTypes, onToggle }: LegendProps) {
   ];
 
   return (
-    <div className="absolute top-3 right-3 bg-strix-bg/80 backdrop-blur-sm border border-strix-border-subtle rounded-lg px-3 py-2 z-10">
+    <div className="absolute top-3 right-3 bg-strix-bg/80 backdrop-blur-sm will-change-[backdrop-filter] border border-strix-border-subtle rounded-lg px-3 py-2 z-10">
       <div className="text-[9px] uppercase tracking-wider text-strix-text-muted mb-1.5 font-semibold">Filter</div>
       <div className="space-y-1">
         {items.map((item) => {
@@ -663,23 +664,23 @@ function StatsOverlay({ agents, tools, vulns }: StatsOverlayProps) {
   const totalFindings = vulns.length;
 
   return (
-    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-strix-bg/80 backdrop-blur-sm border border-strix-border-subtle rounded-lg px-3 py-2 z-10">
+    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-strix-bg/80 backdrop-blur-sm will-change-[backdrop-filter] border border-strix-border-subtle rounded-lg px-3 py-2 z-10">
       <div className="flex items-center gap-4 text-[10px]">
         <div className="flex items-center gap-1.5">
           <Bot size={10} className="text-strix-accent" />
           <span className="text-strix-text-secondary">
-            <span className="text-white font-medium">{runningAgents}</span>
+            <span className="text-strix-text font-medium">{runningAgents}</span>
             <span className="text-strix-text-muted">/{totalAgents}</span>
           </span>
         </div>
         <div className="flex items-center gap-1.5">
           <Wrench size={10} className="text-strix-text-muted" />
-          <span className="text-white font-medium">{toolCount}</span>
+          <span className="text-strix-text font-medium">{toolCount}</span>
         </div>
         {totalFindings > 0 && (
           <div className="flex items-center gap-1.5">
             <ShieldAlert size={10} className="text-severity-high" />
-            <span className="text-white font-medium">{totalFindings}</span>
+            <span className="text-strix-text font-medium">{totalFindings}</span>
             {sevCounts.critical > 0 && (
               <span className="text-severity-critical font-semibold">{sevCounts.critical}C</span>
             )}
@@ -700,17 +701,26 @@ function StatsOverlay({ agents, tools, vulns }: StatsOverlayProps) {
 
 interface NetworkTopologyInnerProps {
   onNodeSelect?: (selection: SelectedNode | null) => void;
+  externalSelectedNode?: SelectedNode | null;
 }
 
-function NetworkTopologyInner({ onNodeSelect }: NetworkTopologyInnerProps) {
+function NetworkTopologyInner({ onNodeSelect, externalSelectedNode }: NetworkTopologyInnerProps) {
   const agents = useAgentStore((s) => s.agents);
   const tools = useToolStore((s) => s.tools);
   const vulns = useVulnerabilityStore((s) => s.vulnerabilities);
   const scan = useScanStore((s) => s.activeScan);
   const setSelectedAgent = useAgentStore((s) => s.setSelectedAgent);
   const reactFlowInstance = useReactFlow();
+  const { resolved } = useTheme();
+  const colors = getThemeColors(resolved);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  // Sync: when parent dismisses the panel, clear internal selection
+  if (externalSelectedNode === null && selectedNodeId !== null) {
+    setSelectedNodeId(null);
+  }
+
   const [hiddenTypes, setHiddenTypes] = useState<Set<FilterableType>>(new Set());
 
   const toggleType = useCallback((type: FilterableType) => {
@@ -722,9 +732,25 @@ function NetworkTopologyInner({ onNodeSelect }: NetworkTopologyInnerProps) {
     });
   }, []);
 
-  const { nodes: layoutNodes, edges: layoutEdges } = useMemo(
-    () => calculateLayout(agents, tools, vulns, scan, selectedNodeId),
-    [agents, tools, vulns, scan, selectedNodeId]
+  const themeColors = useMemo(() => ({
+    accent: colors.accent,
+    border: colors.border,
+    borderSubtle: colors.borderSubtle,
+  }), [colors.accent, colors.border, colors.borderSubtle]);
+
+  const { nodes: rawNodes, edges: layoutEdges } = useMemo(
+    () => calculateLayout(agents, tools, vulns, scan, themeColors),
+    [agents, tools, vulns, scan, themeColors]
+  );
+
+  // Lightweight: only nodes whose selection state changed get a new reference
+  const layoutNodes = useMemo(() =>
+    rawNodes.map(n => {
+      const shouldSelect = n.id === selectedNodeId;
+      if (shouldSelect === !!n.data.selected) return n; // keep same reference
+      return { ...n, data: { ...n.data, selected: shouldSelect } };
+    }),
+    [rawNodes, selectedNodeId]
   );
 
   // Filter nodes/edges by hidden types
@@ -753,10 +779,12 @@ function NetworkTopologyInner({ onNodeSelect }: NetworkTopologyInnerProps) {
   useEffect(() => {
     const count = filteredNodes.length;
     if (count !== prevCountRef.current && count > 0) {
+      const prev = prevCountRef.current;
       prevCountRef.current = count;
+      const delta = Math.abs(count - prev);
       const timer = setTimeout(() => {
-        reactFlowInstance?.fitView({ padding: 0.2, duration: 300 });
-      }, 50);
+        reactFlowInstance?.fitView({ padding: 0.2, duration: delta > 3 ? 300 : 0 });
+      }, 1000);
       return () => clearTimeout(timer);
     }
   }, [filteredNodes.length, reactFlowInstance]);
@@ -808,6 +836,21 @@ function NetworkTopologyInner({ onNodeSelect }: NetworkTopologyInnerProps) {
     [selectedNodeId, scan, agents, tools, vulns, setSelectedAgent, onNodeSelect]
   );
 
+  // Memoize MiniMap callbacks to avoid unnecessary re-renders
+  const nodeColorFn = useCallback((n: Node) => {
+    if (n.type === "target") return colors.accent;
+    if (n.type === "finding") {
+      const sev = (n.data as { severity?: string })?.severity;
+      return SEVERITY_STROKE[sev || "info"] || colors.severityCritical;
+    }
+    if (n.type === "agent") {
+      return (n.data as { status?: string })?.status === "running" ? colors.accent : colors.border;
+    }
+    return colors.borderSubtle;
+  }, [colors]);
+
+  const miniMapMask = useMemo(() => `${colors.bg}cc`, [colors.bg]);
+
   if (!scan) {
     return (
       <div className="flex items-center justify-center h-full text-strix-text-muted text-sm">
@@ -818,7 +861,7 @@ function NetworkTopologyInner({ onNodeSelect }: NetworkTopologyInnerProps) {
 
   return (
     <div className="relative w-full h-full">
-      <EdgeDefs />
+      <EdgeDefs accent={colors.accent} border={colors.border} />
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -833,23 +876,15 @@ function NetworkTopologyInner({ onNodeSelect }: NetworkTopologyInnerProps) {
         maxZoom={1.5}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={20} size={1} color="#1F1F1F" />
+        <Background gap={20} size={1} color={colors.elevated} />
         <Controls showInteractive={false} />
-        <MiniMap
-          nodeStrokeWidth={3}
-          nodeColor={(n) => {
-            if (n.type === "target") return "#22C55E";
-            if (n.type === "finding") {
-              const sev = (n.data as { severity?: string })?.severity;
-              return SEVERITY_STROKE[sev || "info"] || "#FF0000";
-            }
-            if (n.type === "agent") {
-              return (n.data as { status?: string })?.status === "running" ? "#22C55E" : "#3A3A3A";
-            }
-            return "#2A2A2A";
-          }}
-          maskColor="#0A0A0Acc"
-        />
+        <div className="hidden md:block">
+          <MiniMap
+            nodeStrokeWidth={3}
+            nodeColor={nodeColorFn}
+            maskColor={miniMapMask}
+          />
+        </div>
       </ReactFlow>
       <Legend hiddenTypes={hiddenTypes} onToggle={toggleType} />
       <StatsOverlay agents={agents} tools={tools} vulns={vulns} />
@@ -861,12 +896,13 @@ function NetworkTopologyInner({ onNodeSelect }: NetworkTopologyInnerProps) {
 
 interface NetworkTopologyProps {
   onNodeSelect?: (selection: SelectedNode | null) => void;
+  selectedNode?: SelectedNode | null;
 }
 
-export default function NetworkTopology({ onNodeSelect }: NetworkTopologyProps) {
+export default function NetworkTopology({ onNodeSelect, selectedNode }: NetworkTopologyProps) {
   return (
     <ReactFlowProvider>
-      <NetworkTopologyInner onNodeSelect={onNodeSelect} />
+      <NetworkTopologyInner onNodeSelect={onNodeSelect} externalSelectedNode={selectedNode ?? null} />
     </ReactFlowProvider>
   );
 }

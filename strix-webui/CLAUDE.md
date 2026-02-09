@@ -32,6 +32,7 @@ Single file defining all TypeScript types used across the network boundary: `Sca
 
 - **`server/rest-api.ts`** — Express REST endpoints: CRUD for scans, PDF report download, `/api/ask` (SSE streaming to Claude CLI in ask/execute modes), `/api/chat/*` (session CRUD with `X-Strix-User-Id` user isolation)
 - **`server/scan-manager.ts`** — Spawns `claude` CLI as child process with `--print --dangerously-skip-permissions`, passes `STRIX_SCAN_ID` env var. One active scan at a time.
+- **`server/docker-utils.ts`** — Docker preflight checks (engine running, sandbox image present, image pull/build) with step-by-step progress reporting via `PreflightStep` events
 - **`server/websocket.ts`** — WS server on port 3001. Sends `INIT_STATE` on connect, broadcasts all events, 15s heartbeat, 2-min idle agent detection
 - **`store/sqlite-store.ts`** — SQLite via better-sqlite3, stored at `~/.strix-webui/strix.db` (WAL mode). Tables: scans, agents, tool_executions, vulnerabilities, logs, chat_sessions, chat_messages. Tool outputs >10KB truncated to separate files in `~/.strix-webui/content/`
 - **`bridge/event-receiver.ts`** — Watches `~/.strix-webui/events/events.jsonl` via `fs.watch` + 500ms polling, parses events, updates DB, emits to WebSocket
@@ -42,8 +43,10 @@ Single file defining all TypeScript types used across the network boundary: `Sca
 
 - **State**: Zustand stores in `store/` — one per entity (scan, agent, tool, vulnerability, log), all using `Map<string, T>` for O(1) lookups
 - **WebSocket**: `hooks/useWebSocket.ts` — auto-connect, auto-reconnect (2s), heartbeat ping, tab-visibility reconnect
-- **Routing** (react-router-dom): `/` Dashboard, `/ask` AskAI, `/scan` LiveScan, `/scan/:id` specific scan, `/scan/:id/report` ReportPreview, `/history`, `/reports`, `/findings`, `/settings`
-- **Key pages**: `Dashboard.tsx` (scan launcher), `LiveScan.tsx` (3-pane layout), `AskAI.tsx` (standalone chat with persistent sessions), `ReportPreview.tsx` (report viewer with inline chat panel)
+- **Routing** (react-router-dom): `/` Dashboard, `/ask` AskAI, `/scan` LiveScan, `/scan/:id` specific scan, `/scan/:id/report` ReportPreview, `/history`, `/reports`, `/findings`, `/settings`, `/tools/:category` ToolCategory
+- **Key pages**: `Dashboard.tsx` (scan launcher with Docker preflight), `LiveScan.tsx` (3-pane layout), `AskAI.tsx` (standalone chat with persistent sessions), `ReportPreview.tsx` (report viewer with inline chat panel)
+- **Mobile**: `useIsMobile.ts` hook, `MobileDrawer.tsx` (slide-over panels), `MobileTabBar.tsx` (bottom navigation). `MainLayout.tsx` switches between desktop sidebar and mobile drawer.
+- **Theming**: `useTheme.ts` provides light/dark/system preference (stored in localStorage as `strix-theme`). Applies CSS class to `<html>` and updates meta theme-color.
 - **Shared types re-export**: `types/index.ts` re-exports from `@shared/index` — new shared types must be added to both files
 - **User isolation**: `lib/userId.ts` generates per-browser UUID in localStorage; `lib/chatApi.ts` sends it as `X-Strix-User-Id` header on chat API calls
 - **Visualization**: `NetworkTopology.tsx` uses `@xyflow/react` for hierarchical agent/tool/finding graph with custom node types and animated edges
@@ -86,4 +89,4 @@ Frontend useWebSocket → updates Zustand stores → React re-renders
 
 ## Design System
 
-Dark theme in `tailwind.config.ts`: backgrounds `#0A0A0A`/`#141414`/`#1F1F1F`, accent green `#22C55E`, severity colors (critical=red, high=orange, medium=yellow, low=blue). Fonts: Geist Sans + Geist Mono.
+Light/dark/system theming via `useTheme` hook and Tailwind `dark:` variants. Dark palette in `tailwind.config.ts`: backgrounds `#0A0A0A`/`#141414`/`#1F1F1F`, accent green `#22C55E`, severity colors (critical=red, high=orange, medium=yellow, low=blue). Fonts: Geist Sans + Geist Mono.

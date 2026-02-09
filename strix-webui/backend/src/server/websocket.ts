@@ -20,7 +20,11 @@ export function createWebSocketServer(port: number = 3001): WebSocketServer {
   const agentLastActivity = new Map<string, number>();
   const scanSessionMap = new Map<string, string>(); // scanId -> sessionId for active scan
 
+  // Track replay state to suppress broadcasts and duplicate log entries
+  let isReplayingEvents = false;
+
   function broadcast(message: WSMessage): void {
+    if (isReplayingEvents) return; // Skip during event replay
     const data = JSON.stringify(message);
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
@@ -33,8 +37,11 @@ export function createWebSocketServer(port: number = 3001): WebSocketServer {
     agentLastActivity.set(agentId, Date.now());
   }
 
-  eventReceiver.on("event", (event: InternalEvent) => {
+  eventReceiver.on("event", (event: InternalEvent & { _replay?: boolean }) => {
     try {
+      const isReplay = !!event._replay;
+      if (isReplay) isReplayingEvents = true;
+
       // Skip events not belonging to a known scan (e.g. from the host Claude Code session)
       if ("scanId" in event && event.scanId) {
         const knownScan = store.getScan(event.scanId);
@@ -82,16 +89,18 @@ export function createWebSocketServer(port: number = 3001): WebSocketServer {
           store.saveAgent(agent);
           broadcast({ type: "AGENT_CREATED", payload: agent });
 
-          const log: LogEntry = {
-            id: uuidv4(),
-            scanId: event.scanId,
-            agentId: agent.id,
-            level: "info",
-            message: `Agent spawned: ${agent.name}`,
-            timestamp: event.timestamp,
-          };
-          store.saveLog(log);
-          broadcast({ type: "LOG_ENTRY", payload: log });
+          if (!isReplay) {
+            const log: LogEntry = {
+              id: uuidv4(),
+              scanId: event.scanId,
+              agentId: agent.id,
+              level: "info",
+              message: `Agent spawned: ${agent.name}`,
+              timestamp: event.timestamp,
+            };
+            store.saveLog(log);
+            broadcast({ type: "LOG_ENTRY", payload: log });
+          }
           break;
         }
 
@@ -170,17 +179,19 @@ export function createWebSocketServer(port: number = 3001): WebSocketServer {
           store.saveToolExecution(toolExecution);
           broadcast({ type: "TOOL_STARTED", payload: toolExecution });
 
-          const log: LogEntry = {
-            id: uuidv4(),
-            scanId: event.scanId,
-            agentId,
-            level: "info",
-            message: `Tool started: ${event.toolName}`,
-            toolName: event.toolName,
-            timestamp: event.timestamp,
-          };
-          store.saveLog(log);
-          broadcast({ type: "LOG_ENTRY", payload: log });
+          if (!isReplay) {
+            const log: LogEntry = {
+              id: uuidv4(),
+              scanId: event.scanId,
+              agentId,
+              level: "info",
+              message: `Tool started: ${event.toolName}`,
+              toolName: event.toolName,
+              timestamp: event.timestamp,
+            };
+            store.saveLog(log);
+            broadcast({ type: "LOG_ENTRY", payload: log });
+          }
           break;
         }
 
@@ -202,17 +213,19 @@ export function createWebSocketServer(port: number = 3001): WebSocketServer {
               broadcast({ type: "TOOL_COMPLETED", payload: updated });
             }
 
-            const log: LogEntry = {
-              id: uuidv4(),
-              scanId: event.scanId,
-              agentId: existingTool.agentId,
-              level: "success",
-              message: `Tool completed: ${event.toolName}`,
-              toolName: event.toolName,
-              timestamp: event.timestamp,
-            };
-            store.saveLog(log);
-            broadcast({ type: "LOG_ENTRY", payload: log });
+            if (!isReplay) {
+              const log: LogEntry = {
+                id: uuidv4(),
+                scanId: event.scanId,
+                agentId: existingTool.agentId,
+                level: "success",
+                message: `Tool completed: ${event.toolName}`,
+                toolName: event.toolName,
+                timestamp: event.timestamp,
+              };
+              store.saveLog(log);
+              broadcast({ type: "LOG_ENTRY", payload: log });
+            }
           }
           break;
         }
@@ -233,16 +246,18 @@ export function createWebSocketServer(port: number = 3001): WebSocketServer {
           const vulns = store.getVulnsByScan(event.scanId);
           store.updateScanFindings(event.scanId, vulns.length);
 
-          const log: LogEntry = {
-            id: uuidv4(),
-            scanId: event.scanId,
-            agentId: event.agentId,
-            level: "warning",
-            message: `Vulnerability found: ${vuln.title} (${vuln.severity})`,
-            timestamp: event.timestamp,
-          };
-          store.saveLog(log);
-          broadcast({ type: "LOG_ENTRY", payload: log });
+          if (!isReplay) {
+            const log: LogEntry = {
+              id: uuidv4(),
+              scanId: event.scanId,
+              agentId: event.agentId,
+              level: "warning",
+              message: `Vulnerability found: ${vuln.title} (${vuln.severity})`,
+              timestamp: event.timestamp,
+            };
+            store.saveLog(log);
+            broadcast({ type: "LOG_ENTRY", payload: log });
+          }
           break;
         }
 
@@ -273,6 +288,8 @@ export function createWebSocketServer(port: number = 3001): WebSocketServer {
       }
     } catch (error) {
       console.error("[WS] Error processing event:", error);
+    } finally {
+      isReplayingEvents = false;
     }
   });
 

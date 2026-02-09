@@ -2,6 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  .dark {
+    --color-strix-bg: 10 10 10;              /* #0A0A0A */
+    --color-strix-card: 20 20 20;            /* #141414 */
+    --color-strix-elevated: 31 31 31;        /* #1F1F1F */
+    --color-strix-border-subtle: 42 42 42;   /* #2A2A2A */
+    --color-strix-border: 58 58 58;          /* #3A3A3A */
+    --color-strix-text: 255 255 255;         /* #FFFFFF */
+    --color-strix-text-secondary: 160 160 160; /* #A0A0A0 */
+    --color-strix-text-muted: 107 107 107;   /* #6B6B6B */
+    --color-strix-accent: 34 197 94;         /* #22C55E */
+    --color-strix-accent-hover: 22 163 74;   /* #16A34A */
+    --color-strix-text-on-accent: 0 0 0;     /* #000000 */
+    --color-severity-critical: 255 0 0;      /* #FF0000 */
+    --color-severity-high: 255 107 0;        /* #FF6B00 */
+    --color-severity-medium: 255 184 0;      /* #FFB800 */
+    --color-severity-low: 0 168 255;         /* #00A8FF */
+    --color-severity-info: 107 107 107;      /* #6B6B6B */
+  }
+  .light {
+    --color-strix-bg: 245 245 245;           /* #F5F5F5 */
+    --color-strix-card: 255 255 255;         /* #FFFFFF */
+    --color-strix-elevated: 238 238 238;     /* #EEEEEE */
+    --color-strix-border-subtle: 224 224 224; /* #E0E0E0 */
+    --color-strix-border: 208 208 208;       /* #D0D0D0 */
+    --color-strix-text: 17 17 17;            /* #111111 */
+    --color-strix-text-secondary: 85 85 85;  /* #555555 */
+    --color-strix-text-muted: 153 153 153;   /* #999999 */
+    --color-strix-accent: 22 163 74;         /* #16A34A */
+    --color-strix-accent-hover: 21 128 61;   /* #15803D */
+    --color-strix-text-on-accent: 255 255 255; /* #FFFFFF */
+    --color-severity-critical: 220 38 38;    /* #DC2626 */
+    --color-severity-high: 234 88 12;        /* #EA580C */
+    --color-severity-medium: 202 138 4;      /* #CA8A04 */
+    --color-severity-low: 2 132 199;         /* #0284C7 */
+    --color-severity-info: 153 153 153;      /* #999999 */
+  }
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -10,8 +49,8 @@
 
 html, body, #root {
   height: 100%;
-  background-color: #0A0A0A;
-  color: #FFFFFF;
+  background-color: rgb(var(--color-strix-bg));
+  color: rgb(var(--color-strix-text));
   font-family: 'Geist', 'Inter', system-ui, sans-serif;
 }
 
@@ -21,37 +60,37 @@ html, body, #root {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #141414;
+  background: rgb(var(--color-strix-card));
 }
 ::-webkit-scrollbar-thumb {
-  background: #3A3A3A;
+  background: rgb(var(--color-strix-border));
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4A4A4A;
+  background: rgb(var(--color-strix-border) / 0.8);
 }
 
 /* React Flow overrides */
 .react-flow__background {
-  background-color: #0A0A0A !important;
+  background-color: rgb(var(--color-strix-bg)) !important;
 }
 .react-flow__minimap {
-  background-color: #141414 !important;
-  border: 1px solid #2A2A2A !important;
+  background-color: rgb(var(--color-strix-card)) !important;
+  border: 1px solid rgb(var(--color-strix-border-subtle)) !important;
   border-radius: 8px !important;
 }
 .react-flow__controls {
-  border: 1px solid #2A2A2A !important;
+  border: 1px solid rgb(var(--color-strix-border-subtle)) !important;
   border-radius: 8px !important;
   overflow: hidden;
 }
 .react-flow__controls-button {
-  background-color: #1F1F1F !important;
-  border-bottom: 1px solid #2A2A2A !important;
-  fill: #A0A0A0 !important;
+  background-color: rgb(var(--color-strix-elevated)) !important;
+  border-bottom: 1px solid rgb(var(--color-strix-border-subtle)) !important;
+  fill: rgb(var(--color-strix-text-secondary)) !important;
 }
 .react-flow__controls-button:hover {
-  background-color: #2A2A2A !important;
+  background-color: rgb(var(--color-strix-border-subtle)) !important;
 }
 
 /* Code blocks */
@@ -61,14 +100,14 @@ pre, code {
 
 /* Selection */
 ::selection {
-  background-color: rgba(34, 197, 94, 0.3);
-  color: #FFFFFF;
+  background-color: rgb(var(--color-strix-accent) / 0.3);
+  color: rgb(var(--color-strix-text));
 }
 
 /* Report markdown — accent variant for remediation */
 .report-markdown-accent p,
 .report-markdown-accent li {
-  color: #22C55E;
+  color: rgb(var(--color-strix-accent));
 }
 
 /* Animation for active edges */

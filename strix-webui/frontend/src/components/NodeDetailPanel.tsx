@@ -21,12 +21,12 @@ const VulnMarkdown = memo(function VulnMarkdown({ content }: { content: string }
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        h1: ({ children }) => <h3 className="text-base font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h2: ({ children }) => <h3 className="text-sm font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h3: ({ children }) => <h4 className="text-sm font-semibold text-white mt-2.5 mb-1 first:mt-0">{children}</h4>,
+        h1: ({ children }) => <h3 className="text-base font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h2: ({ children }) => <h3 className="text-sm font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h3: ({ children }) => <h4 className="text-sm font-semibold text-strix-text mt-2.5 mb-1 first:mt-0">{children}</h4>,
         h4: ({ children }) => <h4 className="text-sm font-medium text-strix-text-secondary mt-2 mb-1 first:mt-0">{children}</h4>,
         p: ({ children }) => <p className="text-sm text-strix-text-secondary mb-2 last:mb-0 leading-relaxed">{children}</p>,
-        strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+        strong: ({ children }) => <strong className="font-semibold text-strix-text">{children}</strong>,
         em: ({ children }) => <em className="text-strix-text-secondary italic">{children}</em>,
         ul: ({ children }) => <ul className="text-sm text-strix-text-secondary mb-2 ml-4 space-y-1 list-disc">{children}</ul>,
         ol: ({ children }) => <ol className="text-sm text-strix-text-secondary mb-2 ml-4 space-y-1 list-decimal">{children}</ol>,
@@ -268,7 +268,7 @@ function TargetFull({ scan }: { scan: Scan }) {
       <div className="flex items-center gap-3 mb-5">
         <Globe size={24} className="text-strix-accent shrink-0" />
         <div>
-          <h2 className="text-lg font-semibold text-white">{scan.target}</h2>
+          <h2 className="text-lg font-semibold text-strix-text">{scan.target}</h2>
           <div className="text-xs text-strix-text-muted mt-0.5">Scan ID: {scan.id}</div>
         </div>
       </div>
@@ -278,15 +278,15 @@ function TargetFull({ scan }: { scan: Scan }) {
           <StatusDot status={scan.status} />
         </div>
         <div className="bg-strix-elevated border border-strix-border-subtle rounded-card p-3 text-center">
-          <div className="text-sm font-medium text-white capitalize">{scan.mode}</div>
+          <div className="text-sm font-medium text-strix-text capitalize">{scan.mode}</div>
           <div className="text-[10px] text-strix-text-muted">Mode</div>
         </div>
         <div className="bg-strix-elevated border border-strix-border-subtle rounded-card p-3 text-center">
-          <div className="text-sm font-medium text-white capitalize">{scan.targetType}</div>
+          <div className="text-sm font-medium text-strix-text capitalize">{scan.targetType}</div>
           <div className="text-[10px] text-strix-text-muted">Target Type</div>
         </div>
         <div className="bg-strix-elevated border border-strix-border-subtle rounded-card p-3 text-center">
-          <div className={clsx("text-sm font-medium", scan.findings > 0 ? "text-severity-high" : "text-white")}>{scan.findings}</div>
+          <div className={clsx("text-sm font-medium", scan.findings > 0 ? "text-severity-high" : "text-strix-text")}>{scan.findings}</div>
           <div className="text-[10px] text-strix-text-muted">Findings</div>
         </div>
       </div>
@@ -314,7 +314,7 @@ function AgentFull({ agent }: { agent: Agent }) {
       <div className="flex items-center gap-3 mb-5">
         <Bot size={24} className={agent.status === "running" ? "text-strix-accent" : "text-strix-text-muted"} />
         <div>
-          <h2 className="text-lg font-semibold text-white">{agent.name}</h2>
+          <h2 className="text-lg font-semibold text-strix-text">{agent.name}</h2>
           <div className="text-xs text-strix-text-muted mt-0.5">Agent ID: {agent.id}</div>
         </div>
       </div>
@@ -352,7 +352,7 @@ function ToolFull({ tool }: { tool: ToolExecution }) {
       <div className="flex items-center gap-3 mb-5">
         <Wrench size={24} className={tool.status === "running" ? "text-strix-accent" : "text-strix-text-muted"} />
         <div>
-          <h2 className="text-lg font-semibold text-white">{tool.toolName}</h2>
+          <h2 className="text-lg font-semibold text-strix-text">{tool.toolName}</h2>
           <div className="text-xs text-strix-text-muted mt-0.5">Tool ID: {tool.id}</div>
         </div>
       </div>
@@ -362,12 +362,12 @@ function ToolFull({ tool }: { tool: ToolExecution }) {
           <StatusDot status={tool.status} />
         </div>
         <div className="bg-strix-elevated border border-strix-border-subtle rounded-card p-3 text-center">
-          <div className="text-sm font-medium text-white">{agent ? agent.name : tool.agentId.slice(0, 8)}</div>
+          <div className="text-sm font-medium text-strix-text">{agent ? agent.name : tool.agentId.slice(0, 8)}</div>
           <div className="text-[10px] text-strix-text-muted">Agent</div>
         </div>
         {tool.duration !== undefined && (
           <div className="bg-strix-elevated border border-strix-border-subtle rounded-card p-3 text-center">
-            <div className="text-sm font-medium text-white">{formatDuration(tool.duration)}</div>
+            <div className="text-sm font-medium text-strix-text">{formatDuration(tool.duration)}</div>
             <div className="text-[10px] text-strix-text-muted">Duration</div>
           </div>
         )}
@@ -402,7 +402,7 @@ function FindingFull({ vuln }: { vuln: Vulnerability }) {
         <ShieldAlert size={22} className={clsx(SEV_COLORS[vuln.severity], "shrink-0 mt-0.5")} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-lg font-semibold text-white">{vuln.title}</h2>
+            <h2 className="text-lg font-semibold text-strix-text">{vuln.title}</h2>
             <SeverityBadge severity={vuln.severity} size="lg" />
             {vuln.cvss !== undefined && (
               <span className="text-xs text-strix-text-muted">CVSS {vuln.cvss}</span>
@@ -485,11 +485,11 @@ function DetailModal({ selection, onClose }: { selection: SelectedNode; onClose:
         <div className="h-12 border-b border-strix-border-subtle flex items-center justify-between px-5 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <Icon size={18} className="text-strix-accent shrink-0" />
-            <span className="text-sm font-semibold text-white truncate">{label(selection)}</span>
+            <span className="text-sm font-semibold text-strix-text truncate">{label(selection)}</span>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded hover:bg-strix-elevated text-strix-text-muted hover:text-white transition-colors shrink-0"
+            className="p-1.5 rounded hover:bg-strix-elevated text-strix-text-muted hover:text-strix-text transition-colors shrink-0"
           >
             <X size={16} />
           </button>
@@ -544,11 +544,11 @@ export default function NodeDetailPanel({ selection, scanId, onClose }: NodeDeta
         <div className="h-10 border-b border-strix-border-subtle flex items-center justify-between px-3 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <Icon size={14} className="text-strix-accent shrink-0" />
-            <span className="text-xs font-medium text-white truncate">{label(selection)}</span>
+            <span className="text-xs font-medium text-strix-text truncate">{label(selection)}</span>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-strix-elevated text-strix-text-muted hover:text-white transition-colors shrink-0"
+            className="p-1 rounded hover:bg-strix-elevated text-strix-text-muted hover:text-strix-text transition-colors shrink-0"
           >
             <X size={14} />
           </button>
@@ -566,7 +566,7 @@ export default function NodeDetailPanel({ selection, scanId, onClose }: NodeDeta
         <div className="p-3 border-t border-strix-border-subtle shrink-0">
           <button
             onClick={() => setModalOpen(true)}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-btn text-xs font-medium bg-strix-elevated hover:bg-strix-border text-strix-text-secondary hover:text-white transition-colors"
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-btn text-xs font-medium bg-strix-elevated hover:bg-strix-border text-strix-text-secondary hover:text-strix-text transition-colors"
           >
             <Maximize2 size={12} />
             More

@@ -2,7 +2,7 @@ import { useRef, useEffect, useState } from "react";
 import { useLogStore } from "../../store/logStore";
 import { useToolStore } from "../../store/toolStore";
 import clsx from "clsx";
-import { ArrowDown, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowDown, ChevronRight } from "lucide-react";
 
 export default function TerminalLog() {
   const logs = useLogStore((s) => s.logs);
@@ -75,7 +75,13 @@ export default function TerminalLog() {
                 {/* Expand icon for tools */}
                 {tool && (
                   <span className="shrink-0 text-strix-text-muted">
-                    {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                    <ChevronRight
+                      size={10}
+                      className={clsx(
+                        "transition-transform duration-300 ease-spring will-change-transform",
+                        isExpanded && "rotate-90"
+                      )}
+                    />
                   </span>
                 )}
 
@@ -94,27 +100,41 @@ export default function TerminalLog() {
               </div>
 
               {/* Expanded tool detail */}
-              {isExpanded && tool && (
-                <div className="ml-20 mr-2 my-1 p-2 bg-strix-elevated rounded border border-strix-border-subtle">
-                  <div className="text-strix-text-muted mb-1">Input:</div>
-                  <pre className="text-strix-text-secondary text-[10px] overflow-x-auto max-h-32 overflow-y-auto">
-                    {JSON.stringify(tool.toolInput, null, 2)}
-                  </pre>
-                  {tool.toolOutput !== undefined && tool.toolOutput !== null && (
-                    <>
-                      <div className="text-strix-text-muted mt-2 mb-1">Output:</div>
+              {tool && (
+                <div
+                  className={clsx(
+                    "grid transition-[grid-template-rows] duration-300 ease-spring will-change-[grid-template-rows]",
+                    isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                  )}
+                >
+                  <div
+                    className={clsx(
+                      "overflow-hidden transition-opacity duration-300 ease-spring",
+                      isExpanded ? "opacity-100" : "opacity-0"
+                    )}
+                  >
+                    <div className="ml-20 mr-2 my-1 p-2 bg-strix-elevated rounded border border-strix-border-subtle">
+                      <div className="text-strix-text-muted mb-1">Input:</div>
                       <pre className="text-strix-text-secondary text-[10px] overflow-x-auto max-h-32 overflow-y-auto">
-                        {typeof tool.toolOutput === "string"
-                          ? (tool.toolOutput as string).slice(0, 2000)
-                          : JSON.stringify(tool.toolOutput, null, 2).slice(0, 2000)}
+                        {JSON.stringify(tool.toolInput, null, 2)}
                       </pre>
-                    </>
-                  )}
-                  {tool.duration !== undefined && (
-                    <div className="text-strix-text-muted mt-1 text-[10px]">
-                      Duration: {(tool.duration / 1000).toFixed(2)}s
+                      {tool.toolOutput !== undefined && tool.toolOutput !== null && (
+                        <>
+                          <div className="text-strix-text-muted mt-2 mb-1">Output:</div>
+                          <pre className="text-strix-text-secondary text-[10px] overflow-x-auto max-h-32 overflow-y-auto">
+                            {typeof tool.toolOutput === "string"
+                              ? (tool.toolOutput as string).slice(0, 2000)
+                              : JSON.stringify(tool.toolOutput, null, 2).slice(0, 2000)}
+                          </pre>
+                        </>
+                      )}
+                      {tool.duration !== undefined && (
+                        <div className="text-strix-text-muted mt-1 text-[10px]">
+                          Duration: {(tool.duration / 1000).toFixed(2)}s
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
             </div>

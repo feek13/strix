@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="glow-l" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22C55E" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#22C55E" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow-r" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22C55E" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#22C55E" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#0A0A0A"/>
+
+  <!-- Owl face silhouette - subtle dark shape -->
+  <path d="M256 420 C160 420 90 350 90 260 C90 170 130 110 180 80 C200 68 230 60 256 60 C282 60 312 68 332 80 C382 110 422 170 422 260 C422 350 352 420 256 420Z" fill="#141414"/>
+
+  <!-- Ear tufts -->
+  <path d="M150 130 L120 50 L190 100Z" fill="#1F1F1F"/>
+  <path d="M362 130 L392 50 L322 100Z" fill="#1F1F1F"/>
+
+  <!-- Eye sockets -->
+  <ellipse cx="185" cy="240" rx="62" ry="58" fill="#0A0A0A"/>
+  <ellipse cx="327" cy="240" rx="62" ry="58" fill="#0A0A0A"/>
+
+  <!-- Eye glow aura -->
+  <ellipse cx="185" cy="240" rx="52" ry="48" fill="url(#glow-l)"/>
+  <ellipse cx="327" cy="240" rx="52" ry="48" fill="url(#glow-r)"/>
+
+  <!-- Eye rings -->
+  <ellipse cx="185" cy="240" rx="38" ry="35" fill="none" stroke="#22C55E" stroke-width="3" opacity="0.5"/>
+  <ellipse cx="327" cy="240" rx="38" ry="35" fill="none" stroke="#22C55E" stroke-width="3" opacity="0.5"/>
+
+  <!-- Irises -->
+  <ellipse cx="185" cy="240" rx="24" ry="22" fill="#22C55E" opacity="0.9"/>
+  <ellipse cx="327" cy="240" rx="24" ry="22" fill="#22C55E" opacity="0.9"/>
+
+  <!-- Pupils - vertical slit -->
+  <ellipse cx="185" cy="240" rx="8" ry="20" fill="#0A0A0A"/>
+  <ellipse cx="327" cy="240" rx="8" ry="20" fill="#0A0A0A"/>
+
+  <!-- Pupil highlight -->
+  <circle cx="195" cy="230" r="5" fill="white" opacity="0.7"/>
+  <circle cx="337" cy="230" r="5" fill="white" opacity="0.7"/>
+
+  <!-- Beak -->
+  <path d="M244 280 L256 310 L268 280Z" fill="#22C55E" opacity="0.6"/>
+
+  <!-- Brow line - gives intensity -->
+  <path d="M130 200 Q185 180 240 210" fill="none" stroke="#22C55E" stroke-width="2.5" opacity="0.3"/>
+  <path d="M382 200 Q327 180 272 210" fill="none" stroke="#22C55E" stroke-width="2.5" opacity="0.3"/>
+</svg>

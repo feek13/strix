@@ -16,12 +16,12 @@ const CompactMarkdown = memo(function CompactMarkdown({ content }: { content: st
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        h1: ({ children }) => <h3 className="text-xs font-bold text-white mt-2 mb-1 first:mt-0">{children}</h3>,
-        h2: ({ children }) => <h3 className="text-xs font-bold text-white mt-2 mb-1 first:mt-0">{children}</h3>,
-        h3: ({ children }) => <h4 className="text-[11px] font-bold text-white mt-1.5 mb-0.5 first:mt-0">{children}</h4>,
+        h1: ({ children }) => <h3 className="text-xs font-bold text-strix-text mt-2 mb-1 first:mt-0">{children}</h3>,
+        h2: ({ children }) => <h3 className="text-xs font-bold text-strix-text mt-2 mb-1 first:mt-0">{children}</h3>,
+        h3: ({ children }) => <h4 className="text-[11px] font-bold text-strix-text mt-1.5 mb-0.5 first:mt-0">{children}</h4>,
         h4: ({ children }) => <h4 className="text-[11px] font-semibold text-strix-text-secondary mt-1.5 mb-0.5 first:mt-0">{children}</h4>,
         p: ({ children }) => <p className="text-xs text-strix-text-secondary mb-1.5 last:mb-0 leading-relaxed">{children}</p>,
-        strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+        strong: ({ children }) => <strong className="font-semibold text-strix-text">{children}</strong>,
         em: ({ children }) => <em className="text-strix-text-secondary italic">{children}</em>,
         ul: ({ children }) => <ul className="text-xs text-strix-text-secondary mb-1.5 ml-3 space-y-0.5 list-disc">{children}</ul>,
         ol: ({ children }) => <ol className="text-xs text-strix-text-secondary mb-1.5 ml-3 space-y-0.5 list-decimal">{children}</ol>,
@@ -396,7 +396,7 @@ export default function ChatInterface() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleStartScan()}
               placeholder="Enter target URL..."
-              className="flex-1 bg-strix-elevated border border-strix-border rounded-btn px-3 py-2 text-sm text-white placeholder:text-strix-text-muted focus:outline-none focus:border-strix-accent"
+              className="flex-1 bg-strix-elevated border border-strix-border rounded-btn px-3 py-2 text-sm text-strix-text placeholder:text-strix-text-muted focus:outline-none focus:border-strix-accent"
             />
             <button
               onClick={handleStartScan}
@@ -404,7 +404,7 @@ export default function ChatInterface() {
               className={clsx(
                 "p-2 rounded-btn transition-colors",
                 input.trim() && !isStarting
-                  ? "bg-strix-accent text-black hover:bg-strix-accent-hover"
+                  ? "bg-strix-accent text-strix-text-on-accent hover:bg-strix-accent-hover"
                   : "bg-strix-elevated text-strix-text-muted"
               )}
             >
@@ -583,7 +583,7 @@ export default function ChatInterface() {
             disabled={asking}
             rows={1}
             className={clsx(
-              "flex-1 bg-strix-elevated border rounded-btn px-2.5 py-1.5 text-xs text-white placeholder:text-strix-text-muted focus:outline-none transition-colors disabled:opacity-50 resize-none",
+              "flex-1 bg-strix-elevated border rounded-btn px-2.5 py-1.5 text-xs text-strix-text placeholder:text-strix-text-muted focus:outline-none transition-colors disabled:opacity-50 resize-none",
               executeMode ? "border-severity-high/30 focus:border-severity-high" : "border-strix-border focus:border-strix-accent"
             )}
           />
@@ -592,7 +592,7 @@ export default function ChatInterface() {
             disabled={!input.trim() || asking}
             className={clsx(
               "p-1.5 rounded-btn disabled:opacity-30 transition-opacity shrink-0",
-              executeMode ? "bg-severity-high text-white" : "bg-strix-accent text-black"
+              executeMode ? "bg-severity-high text-strix-text-on-accent" : "bg-strix-accent text-strix-text-on-accent"
             )}
           >
             {executeMode ? <Zap size={14} /> : <Send size={14} />}

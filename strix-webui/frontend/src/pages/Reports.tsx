@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useScanStore } from "../store/scanStore";
-import { FileText, Download, Eye, Loader2, ShieldAlert } from "lucide-react";
+import { FileText, Download, Eye, Loader2, ShieldAlert, ArrowLeft } from "lucide-react";
 import clsx from "clsx";
 import { formatDistanceToNow } from "date-fns";
+import { useIsMobile } from "../hooks/useIsMobile";
 import type { Vulnerability, Scan } from "../types";
 
 interface ReportPreview {
@@ -20,11 +21,13 @@ interface ReportPreview {
 
 export default function Reports() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const scans = useScanStore((s) => s.scans);
   const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
   const [preview, setPreview] = useState<ReportPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   // Load scans from API
   useEffect(() => {
@@ -36,6 +39,7 @@ export default function Reports() {
   const loadPreview = async (scanId: string) => {
     setSelectedScanId(scanId);
     setLoading(true);
+    if (isMobile) setShowPreview(true);
     try {
       const res = await fetch(`/api/scans/${scanId}/report/preview`);
       if (res.ok) {
@@ -71,81 +75,85 @@ export default function Reports() {
 
   const completedScans = scans.filter((s) => s.status === "completed" || s.status === "stopped");
 
-  return (
-    <div className="p-6 max-w-6xl mx-auto animate-fade-in">
-      <h1 className="text-xl font-semibold mb-4">Reports</h1>
-
-      <div className="flex gap-6">
-        {/* Scan list */}
-        <div className="w-72 space-y-2">
-          <h3 className="text-xs text-strix-text-muted uppercase tracking-wider mb-2">Select Scan</h3>
-          {completedScans.length === 0 && (
-            <div className="text-sm text-strix-text-muted py-8 text-center">No completed scans</div>
+  const scanListContent = (
+    <div className="space-y-2">
+      <h3 className="text-xs text-strix-text-muted uppercase tracking-wider mb-2">Select Scan</h3>
+      {completedScans.length === 0 && (
+        <div className="text-sm text-strix-text-muted py-8 text-center">No completed scans</div>
+      )}
+      {completedScans.map((scan) => (
+        <button
+          key={scan.id}
+          onClick={() => loadPreview(scan.id)}
+          className={clsx(
+            "w-full text-left p-3 rounded-card border transition-colors",
+            selectedScanId === scan.id
+              ? "border-strix-accent bg-strix-accent/5"
+              : "border-strix-border-subtle bg-strix-card hover:border-strix-border"
           )}
-          {completedScans.map((scan) => (
-            <button
-              key={scan.id}
-              onClick={() => loadPreview(scan.id)}
-              className={clsx(
-                "w-full text-left p-3 rounded-card border transition-colors",
-                selectedScanId === scan.id
-                  ? "border-strix-accent bg-strix-accent/5"
-                  : "border-strix-border-subtle bg-strix-card hover:border-strix-border"
-              )}
-            >
-              <div className="text-sm font-medium truncate">{scan.target}</div>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-strix-text-muted">
-                  {formatDistanceToNow(new Date(scan.createdAt), { addSuffix: true })}
-                </span>
-                {scan.findings > 0 && (
-                  <span className="text-xs text-severity-high">{scan.findings} findings</span>
-                )}
-              </div>
-            </button>
-          ))}
+        >
+          <div className="text-sm font-medium truncate">{scan.target}</div>
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-xs text-strix-text-muted">
+              {formatDistanceToNow(new Date(scan.createdAt), { addSuffix: true })}
+            </span>
+            {scan.findings > 0 && (
+              <span className="text-xs text-severity-high">{scan.findings} findings</span>
+            )}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+
+  const previewContent = (
+    <div className="flex-1">
+      {!selectedScanId && !isMobile && (
+        <div className="flex flex-col items-center justify-center h-64 text-strix-text-muted">
+          <FileText size={40} className="mb-3 opacity-50" />
+          <span className="text-sm">Select a scan to preview the report</span>
         </div>
+      )}
 
-        {/* Report preview */}
-        <div className="flex-1">
-          {!selectedScanId && (
-            <div className="flex flex-col items-center justify-center h-64 text-strix-text-muted">
-              <FileText size={40} className="mb-3 opacity-50" />
-              <span className="text-sm">Select a scan to preview the report</span>
-            </div>
-          )}
+      {loading && (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="animate-spin text-strix-text-muted" size={24} />
+        </div>
+      )}
 
-          {loading && (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="animate-spin text-strix-text-muted" size={24} />
-            </div>
-          )}
+      {preview && !loading && (
+        <div className="space-y-4">
+          {/* Actions */}
+          <div className="flex items-center gap-3">
+            {isMobile && (
+              <button
+                onClick={() => setShowPreview(false)}
+                className="text-strix-text-muted hover:text-strix-text transition-colors shrink-0"
+              >
+                <ArrowLeft size={18} />
+              </button>
+            )}
+            <button
+              onClick={() => navigate(`/scan/${selectedScanId}/report`)}
+              className="flex items-center gap-2 px-4 py-2 rounded-btn bg-strix-accent text-strix-text-on-accent text-sm font-medium hover:bg-strix-accent-hover transition-colors"
+            >
+              <Eye size={16} />
+              Preview Report
+            </button>
+            <button
+              onClick={downloadPDF}
+              disabled={generating}
+              className="flex items-center gap-2 px-4 py-2 rounded-btn bg-strix-elevated text-strix-text-secondary text-sm hover:text-strix-text transition-colors disabled:opacity-50"
+            >
+              {generating ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+              Download PDF
+            </button>
+          </div>
 
-          {preview && !loading && (
-            <div className="space-y-4">
-              {/* Actions */}
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => navigate(`/scan/${selectedScanId}/report`)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-btn bg-strix-accent text-black text-sm font-medium hover:bg-strix-accent-hover transition-colors"
-                >
-                  <Eye size={16} />
-                  Preview Report
-                </button>
-                <button
-                  onClick={downloadPDF}
-                  disabled={generating}
-                  className="flex items-center gap-2 px-4 py-2 rounded-btn bg-strix-elevated text-strix-text-secondary text-sm hover:text-white transition-colors disabled:opacity-50"
-                >
-                  {generating ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                  Download PDF
-                </button>
-              </div>
-
-              {/* Summary card */}
-              <div className="bg-strix-card border border-strix-border-subtle rounded-card p-4">
-                <h3 className="text-sm font-medium mb-3">Executive Summary</h3>
-                <div className="grid grid-cols-4 gap-4 text-center">
+          {/* Summary card */}
+          <div className="bg-strix-card border border-strix-border-subtle rounded-card p-4">
+            <h3 className="text-sm font-medium mb-3">Executive Summary</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                   <div>
                     <div className="text-2xl font-semibold">{preview.summary.totalFindings}</div>
                     <div className="text-xs text-strix-text-muted">Findings</div>
@@ -240,7 +248,24 @@ export default function Reports() {
               </div>
             </div>
           )}
-        </div>
+    </div>
+  );
+
+  if (isMobile) {
+    return (
+      <div className="p-4 max-w-6xl mx-auto animate-fade-in">
+        <h1 className="text-xl font-semibold mb-4">Reports</h1>
+        {showPreview ? previewContent : scanListContent}
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 md:p-6 max-w-6xl mx-auto animate-fade-in">
+      <h1 className="text-xl font-semibold mb-4">Reports</h1>
+      <div className="flex gap-6">
+        <div className="w-72 shrink-0">{scanListContent}</div>
+        {previewContent}
       </div>
     </div>
   );

@@ -1,15 +1,17 @@
 import { useScanStore } from "../../store/scanStore";
 import { useVulnerabilityStore } from "../../store/vulnerabilityStore";
-import { Wifi, WifiOff, Loader2, Shield, Clock } from "lucide-react";
+import { Wifi, WifiOff, Loader2, Shield, Clock, Menu } from "lucide-react";
 import clsx from "clsx";
 import { formatDistanceToNow } from "date-fns";
 import type { ConnectionStatus } from "../../hooks/useWebSocket";
 
 interface HeaderProps {
   connectionStatus: ConnectionStatus;
+  showMenu?: boolean;
+  onMenuClick?: () => void;
 }
 
-export default function Header({ connectionStatus }: HeaderProps) {
+export default function Header({ connectionStatus, showMenu, onMenuClick }: HeaderProps) {
   const activeScan = useScanStore((s) => s.activeScan);
   const vulns = useVulnerabilityStore((s) => s.vulnerabilities);
 
@@ -18,10 +20,19 @@ export default function Header({ connectionStatus }: HeaderProps) {
 
   return (
     <header className="h-12 bg-strix-card border-b border-strix-border-subtle flex items-center justify-between px-4">
-      {/* Left: Scan info */}
-      <div className="flex items-center gap-4">
+      {/* Left: Menu button + Scan info */}
+      <div className="flex items-center gap-3">
+        {showMenu && (
+          <button
+            onClick={onMenuClick}
+            className="p-1.5 -ml-1 text-strix-text-secondary hover:text-strix-text transition-colors"
+            aria-label="Open menu"
+          >
+            <Menu size={20} />
+          </button>
+        )}
         {activeScan ? (
-          <>
+          <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <div
                 className={clsx(
@@ -32,16 +43,16 @@ export default function Header({ connectionStatus }: HeaderProps) {
                   activeScan.status === "stopped" && "bg-severity-medium"
                 )}
               />
-              <span className="text-sm font-medium">{activeScan.target}</span>
-              <span className="text-xs text-strix-text-muted capitalize">{activeScan.status}</span>
+              <span className="text-sm font-medium truncate max-w-[120px] sm:max-w-none">{activeScan.target}</span>
+              <span className="text-xs text-strix-text-muted capitalize hidden sm:inline">{activeScan.status}</span>
             </div>
             {activeScan.startedAt && (
-              <div className="flex items-center gap-1 text-xs text-strix-text-muted">
+              <div className="flex items-center gap-1 text-xs text-strix-text-muted hidden sm:flex">
                 <Clock size={12} />
                 {formatDistanceToNow(new Date(activeScan.startedAt), { addSuffix: false })}
               </div>
             )}
-          </>
+          </div>
         ) : (
           <span className="text-sm text-strix-text-muted">No active scan</span>
         )}
@@ -49,7 +60,7 @@ export default function Header({ connectionStatus }: HeaderProps) {
 
       {/* Center: Severity badges */}
       {vulns.length > 0 && (
-        <div className="flex items-center gap-2">
+        <div className="hidden md:flex items-center gap-2">
           <Shield size={14} className="text-strix-text-muted" />
           {severityCounts.critical > 0 && (
             <span className="px-2 py-0.5 text-xs rounded-full bg-severity-critical/20 text-severity-critical font-medium">
@@ -87,7 +98,7 @@ export default function Header({ connectionStatus }: HeaderProps) {
           {connectionStatus === "connected" && <Wifi size={12} />}
           {connectionStatus === "disconnected" && <WifiOff size={12} />}
           {connectionStatus === "connecting" && <Loader2 size={12} className="animate-spin" />}
-          <span className="capitalize">{connectionStatus}</span>
+          <span className="capitalize hidden sm:inline">{connectionStatus}</span>
         </div>
       </div>
     </header>

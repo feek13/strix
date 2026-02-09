@@ -6,15 +6,83 @@ import { readFileSync, existsSync } from "fs";
 import { spawn } from "child_process";
 import { store } from "../store/sqlite-store.js";
 import { startScan, stopScan, resumeScan, getActiveScans, getActiveScanById } from "./scan-manager.js";
+import { ensureDockerReady, ensureDockerReadyWithSteps } from "./docker-utils.js";
+import type { PreflightStep } from "./docker-utils.js";
+import { eventReceiver } from "../bridge/event-receiver.js";
 import { generatePDFReport } from "../reports/pdf-generator.js";
 import { generateChatPDF } from "../reports/chat-pdf-generator.js";
 import { generateChatDOCX } from "../reports/chat-docx-generator.js";
 import { randomUUID } from "crypto";
+import type { ChildProcess } from "child_process";
 import type { Scan } from "@strix-webui/shared";
 
 // In-memory map of active SSE streams for Ask AI sessions
 // Key: web session ID, Value: active SSE response
 const activeAskStreams = new Map<string, express.Response>();
+
+// Track active Ask AI CLI processes for graceful shutdown
+interface ActiveAskProcess {
+  child: ChildProcess;
+  webSessionId: string;
+  userId: string;
+  claudeSessionId: string;
+  currentMode: string;
+  isResume: boolean;
+  accumulatedText: string;  // assistant response accumulated so far
+}
+const activeAskProcesses = new Map<string, ActiveAskProcess>();
+
+/** Kill a child process and its entire process group (spawned with detached: true) */
+function killProcessGroup(child: ChildProcess) {
+  try {
+    if (child.pid) process.kill(-child.pid, "SIGTERM");
+  } catch {
+    try { child.kill("SIGTERM"); } catch {}
+  }
+}
+
+// Graceful shutdown: save all active Ask AI session state to DB before exit
+function saveActiveAskSessions() {
+  for (const [id, proc] of activeAskProcesses) {
+    try {
+      // Save claudeSessionId if this was a new session
+      if (!proc.isResume) {
+        store.updateChatSessionClaudeId(proc.webSessionId, proc.userId, proc.claudeSessionId, proc.currentMode);
+      }
+      // Save accumulated assistant response if any
+      if (proc.accumulatedText.trim()) {
+        store.addChatMessage({
+          id: randomUUID(),
+          sessionId: proc.webSessionId,
+          role: "assistant",
+          content: proc.accumulatedText,
+          isExecute: proc.currentMode === "execute",
+          blocks: undefined,
+          createdAt: new Date().toISOString(),
+        });
+        console.log(`[Shutdown] Saved partial assistant response for session ${proc.webSessionId} (${proc.accumulatedText.length} chars)`);
+      }
+    } catch (err) {
+      console.error(`[Shutdown] Failed to save session ${id}:`, err);
+    }
+  }
+}
+
+// Register shutdown handlers
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    console.log(`[Shutdown] Received ${signal}, saving ${activeAskProcesses.size} active session(s)...`);
+    saveActiveAskSessions();
+    // Persist EventReceiver cursor so no events are lost on restart
+    eventReceiver.stop();
+    // Kill all child processes
+    for (const [, proc] of activeAskProcesses) {
+      killProcessGroup(proc.child);
+    }
+    activeAskProcesses.clear();
+    process.exit(0);
+  });
+}
 
 export function createRestServer(port: number = 3000): express.Application {
   const app = express();
@@ -29,12 +97,23 @@ export function createRestServer(port: number = 3000): express.Application {
   });
 
   // Start new scan
-  app.post("/api/scans", (req, res) => {
+  app.post("/api/scans", async (req, res) => {
     try {
       const { target, targetType, mode, timeoutMinutes } = req.body;
 
       if (!target) {
         res.status(400).json({ error: "Target is required" });
+        return;
+      }
+
+      // Pre-flight: ensure Docker is running (auto-starts if needed)
+      try {
+        await ensureDockerReady(90_000, (msg) => {
+          console.log(`[Docker] ${msg}`);
+        });
+      } catch (dockerErr) {
+        const msg = dockerErr instanceof Error ? dockerErr.message : "Docker is not available";
+        res.status(503).json({ error: msg, code: "DOCKER_NOT_READY" });
         return;
       }
 
@@ -51,6 +130,89 @@ export function createRestServer(port: number = 3000): express.Application {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       res.status(500).json({ error: message });
+    }
+  });
+
+  // Start scan with real-time SSE progress for preflight checks
+  app.post("/api/scans/start", async (req, res) => {
+    const { target, targetType, mode, timeoutMinutes } = req.body;
+
+    if (!target) {
+      res.status(400).json({ error: "Target is required" });
+      return;
+    }
+
+    // Set up SSE headers (same pattern as /api/ask)
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    res.write(": connected\n\n");
+
+    let finished = false;
+
+    // Heartbeat every 5s to keep connection alive during long builds
+    const heartbeat = setInterval(() => {
+      if (!finished) res.write(": heartbeat\n\n");
+    }, 5000);
+
+    const cleanup = () => {
+      finished = true;
+      clearInterval(heartbeat);
+    };
+
+    res.on("close", () => {
+      cleanup();
+    });
+
+    const writeEvent = (data: Record<string, unknown>) => {
+      if (!finished) {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      }
+    };
+
+    try {
+      // Run preflight checks with structured step reporting
+      await ensureDockerReadyWithSteps((step: PreflightStep) => {
+        writeEvent({ type: "step", ...step });
+      }, 90_000);
+
+      // Step 3: Launch the scan
+      writeEvent({
+        type: "step",
+        step: 3, totalSteps: 3, id: "launch",
+        label: "Launching Scan", status: "running",
+        detail: "Creating scan...",
+      });
+
+      // Auto-detect target type
+      let type: Scan["targetType"] = targetType || "url";
+      if (!targetType) {
+        if (target.includes("github.com")) type = "github";
+        else if (target.startsWith("/") || target.startsWith("./") || target.startsWith("~")) type = "local";
+        else type = "url";
+      }
+
+      const scan = startScan(target.trim(), type, mode || "auto", timeoutMinutes);
+
+      writeEvent({
+        type: "step",
+        step: 3, totalSteps: 3, id: "launch",
+        label: "Launching Scan", status: "done",
+      });
+
+      writeEvent({ type: "complete", scan });
+      res.write("data: [DONE]\n\n");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error(`[Scan Start SSE] Error: ${message}`);
+      writeEvent({ type: "error", error: message });
+      res.write("data: [DONE]\n\n");
+    } finally {
+      cleanup();
+      res.end();
     }
   });
 
@@ -87,8 +249,19 @@ export function createRestServer(port: number = 3000): express.Application {
   });
 
   // Resume a completed/stopped scan
-  app.post("/api/scans/:id/resume", (req, res) => {
+  app.post("/api/scans/:id/resume", async (req, res) => {
     try {
+      // Pre-flight: ensure Docker is running
+      try {
+        await ensureDockerReady(90_000, (msg) => {
+          console.log(`[Docker] ${msg}`);
+        });
+      } catch (dockerErr) {
+        const msg = dockerErr instanceof Error ? dockerErr.message : "Docker is not available";
+        res.status(503).json({ error: msg, code: "DOCKER_NOT_READY" });
+        return;
+      }
+
       const { timeoutMinutes } = req.body || {};
       const scan = resumeScan(req.params.id, timeoutMinutes);
       res.json(scan);
@@ -181,7 +354,7 @@ export function createRestServer(port: number = 3000): express.Application {
 
   // Ask AI about the report (SSE streaming via Claude Code CLI)
   // Now session-aware: uses --session-id/--resume for persistent Claude CLI sessions
-  app.post("/api/ask", (req, res) => {
+  app.post("/api/ask", async (req, res) => {
     const { scanId, selectedText, question, history, mode, sessionId: webSessionId } = req.body;
     if (!question) {
       res.status(400).json({ error: "Question is required" });
@@ -328,6 +501,24 @@ export function createRestServer(port: number = 3000): express.Application {
     // Send initial keepalive so client knows connection is established
     res.write(": connected\n\n");
 
+    // Execute mode (new session): Docker preflight before spawning Claude
+    // so that strix-sandbox MCP server can connect to the container.
+    if (isExecute && !isResume) {
+      try {
+        await ensureDockerReadyWithSteps((step) => {
+          res.write(`data: ${JSON.stringify({ type: "preflight_step", ...step })}\n\n`);
+        }, 90_000);
+        res.write(`data: ${JSON.stringify({ type: "preflight_done" })}\n\n`);
+      } catch (dockerErr) {
+        const msg = dockerErr instanceof Error ? dockerErr.message : "Docker is not available";
+        console.error(`[Ask AI] Docker preflight failed: ${msg}`);
+        res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+        return;
+      }
+    }
+
     console.log(`[Ask AI] Spawning claude in ${isExecute ? "EXECUTE" : "ASK"} mode, ${isResume ? "RESUME" : "NEW"} session (${prompt.length} chars)`);
 
     // Build spawn args based on mode and session state
@@ -347,17 +538,16 @@ export function createRestServer(port: number = 3000): express.Application {
     // stream-json requires --verbose in print mode
     args.push("--output-format", "stream-json", "--verbose");
 
-    // Skip MCP server loading for both modes — built-in tools (Bash, Read,
-    // Write, Glob, Grep, Edit) are always available and sufficient for Ask AI.
-    // MCP initialization can hang for minutes (especially if Docker is down).
-    // Full MCP tools are available through the dedicated Scan feature.
-    args.push("--mcp-config", '{"mcpServers":{}}', "--strict-mcp-config");
-
     if (isExecute) {
+      // Execute mode: load full MCP servers (including strix-sandbox) for
+      // Docker sandbox, browser automation, multi-agent, and findings tools.
+      // MCP init takes ~2.5min but enables deep security testing capabilities.
       args.push("--dangerously-skip-permissions");
       // No turn limit — security tests run until the task is done.
     } else {
-      // Ask mode: lightweight Q&A, no tool execution, fast model
+      // Ask mode: skip MCP servers for fast lightweight Q&A.
+      // Built-in tools (Bash, Read, Write, etc.) are sufficient.
+      args.push("--mcp-config", '{"mcpServers":{}}', "--strict-mcp-config");
       args.push("--max-turns", "1");
       args.push("--model", "sonnet");
     }
@@ -369,6 +559,7 @@ export function createRestServer(port: number = 3000): express.Application {
 
     let finished = false;
     const child = spawn("claude", args, {
+      detached: true,
       env: {
         ...process.env,
         ...(webSessionId ? { STRIX_CHAT_SESSION_ID: webSessionId } : {}),
@@ -376,6 +567,20 @@ export function createRestServer(port: number = 3000): express.Application {
       cwd: session?.cwd || process.env.HOME || homedir(),
       stdio: ["pipe", "pipe", "pipe"],
     });
+
+    // Track this process for graceful shutdown recovery
+    const processId = randomUUID();
+    if (webSessionId && session) {
+      activeAskProcesses.set(processId, {
+        child,
+        webSessionId,
+        userId: session.userId,
+        claudeSessionId,
+        currentMode,
+        isResume,
+        accumulatedText: "",
+      });
+    }
 
     // Pass prompt via stdin (works with both --session-id and --resume)
     child.stdin.write(prompt);
@@ -394,7 +599,7 @@ export function createRestServer(port: number = 3000): express.Application {
       if (!finished) {
         killedByTimeout = true;
         console.log(`[Ask AI] Ask timeout (${timeoutMs / 60000} min), killing process`);
-        child.kill("SIGTERM");
+        killProcessGroup(child);
       }
     }, timeoutMs) : null;
 
@@ -419,6 +624,9 @@ export function createRestServer(port: number = 3000): express.Application {
             for (const block of content) {
               if (block.type === "text") {
                 textSent = true;
+                // Accumulate text for graceful shutdown recovery
+                const tracked = activeAskProcesses.get(processId);
+                if (tracked) tracked.accumulatedText += block.text;
                 res.write(`data: ${JSON.stringify({ type: "text", text: block.text })}\n\n`);
               } else if (block.type === "tool_use") {
                 res.write(`data: ${JSON.stringify({
@@ -456,6 +664,8 @@ export function createRestServer(port: number = 3000): express.Application {
             } else if (!textSent && event.result) {
               // Fallback: if no text events were sent but result has text, send it
               textSent = true;
+              const tracked = activeAskProcesses.get(processId);
+              if (tracked) tracked.accumulatedText += event.result;
               res.write(`data: ${JSON.stringify({ type: "text", text: event.result })}\n\n`);
             }
             res.write(`data: ${JSON.stringify({
@@ -479,16 +689,18 @@ export function createRestServer(port: number = 3000): express.Application {
       clearInterval(heartbeat);
       if (timeout) clearTimeout(timeout);
       if (webSessionId) activeAskStreams.delete(webSessionId);
+      activeAskProcesses.delete(processId);
     };
 
     child.on("exit", (code) => {
       console.log(`[Ask AI] Process exited with code ${code}${killedByTimeout ? " (timeout)" : ""}`);
-      cleanup();
 
       // Save claudeSessionId + mode to DB after first message or mode change
       if (!isResume && webSessionId && session) {
         store.updateChatSessionClaudeId(webSessionId, session.userId, claudeSessionId, currentMode);
       }
+
+      cleanup();
 
       if (!finished) {
         finished = true;
@@ -521,7 +733,7 @@ export function createRestServer(port: number = 3000): express.Application {
       if (!finished) {
         console.log("[Ask AI] Client disconnected, killing process");
         cleanup();
-        child.kill("SIGTERM");
+        killProcessGroup(child);
       }
     });
   });

@@ -9,6 +9,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <script>
+      // Anti-flash: apply theme class before React renders
+      (function() {
+        var stored = localStorage.getItem('strix-theme');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var resolved = stored === 'light' ? 'light' : stored === 'dark' ? 'dark' : (prefersDark ? 'dark' : 'light');
+        var html = document.documentElement;
+        html.classList.remove('dark', 'light');
+        html.classList.add(resolved);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', resolved === 'dark' ? '#0A0A0A' : '#F5F5F5');
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

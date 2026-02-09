@@ -52,7 +52,7 @@ function SkillPage({ skill, navigate }: { skill: typeof SKILL_CATEGORIES[number]
   };
 
   return (
-    <div className="p-6 max-w-3xl mx-auto animate-fade-in">
+    <div className="p-4 md:p-6 max-w-3xl mx-auto animate-fade-in">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-10 h-10 rounded-card bg-strix-accent/10 border border-strix-accent/20 flex items-center justify-center">
           <Icon size={20} className="text-strix-accent" />
@@ -80,7 +80,7 @@ function SkillPage({ skill, navigate }: { skill: typeof SKILL_CATEGORIES[number]
             onChange={(e) => setTarget(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleStart()}
             placeholder="https://target.com"
-            className="flex-1 bg-strix-elevated border border-strix-border rounded-btn px-3 py-2 text-sm text-white placeholder:text-strix-text-muted focus:outline-none focus:border-strix-accent"
+            className="flex-1 bg-strix-elevated border border-strix-border rounded-btn px-3 py-2 text-sm text-strix-text placeholder:text-strix-text-muted focus:outline-none focus:border-strix-accent"
           />
           <button
             onClick={handleStart}
@@ -88,7 +88,7 @@ function SkillPage({ skill, navigate }: { skill: typeof SKILL_CATEGORIES[number]
             className={clsx(
               "flex items-center gap-2 px-4 py-2 rounded-btn text-sm font-medium transition-colors",
               target.trim() && !isStarting
-                ? "bg-strix-accent text-black hover:bg-strix-accent-hover"
+                ? "bg-strix-accent text-strix-text-on-accent hover:bg-strix-accent-hover"
                 : "bg-strix-elevated text-strix-text-muted cursor-not-allowed"
             )}
           >
@@ -117,7 +117,7 @@ export default function ToolCategory() {
     const Icon = iconMap[toolCat.icon] || ShieldAlert;
 
     return (
-      <div className="p-6 max-w-3xl mx-auto animate-fade-in">
+      <div className="p-4 md:p-6 max-w-3xl mx-auto animate-fade-in">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-card bg-strix-elevated border border-strix-border-subtle flex items-center justify-center">
             <Icon size={20} className="text-strix-text-secondary" />
@@ -128,7 +128,7 @@ export default function ToolCategory() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {toolCat.tools.map((tool) => (
             <div
               key={tool}

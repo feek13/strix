@@ -31,7 +31,10 @@ export function ToolBlockRenderer({ tool, toolKey, isExpanded, onToggle, variant
       >
         <ChevronRight
           size={12}
-          className={clsx("text-strix-text-muted transition-transform shrink-0", isExpanded && "rotate-90")}
+          className={clsx(
+            "text-strix-text-muted transition-transform duration-300 ease-spring will-change-transform shrink-0",
+            isExpanded && "rotate-90"
+          )}
         />
         {tool.status === "running" ? (
           <Loader2 size={12} className="text-severity-high animate-spin shrink-0" />
@@ -50,24 +53,36 @@ export function ToolBlockRenderer({ tool, toolKey, isExpanded, onToggle, variant
         {tool.status === "done" && <Check size={12} className="text-strix-accent shrink-0" />}
         {tool.status === "error" && <XCircle size={12} className="text-severity-high shrink-0" />}
       </button>
-      {isExpanded && (
-        <div className="border-t border-strix-border-subtle">
-          <div className={clsx("bg-strix-bg", px, py)}>
-            <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Input</div>
-            <pre className={clsx(fontSize, "font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all overflow-y-auto", maxInputH)}>
-              {JSON.stringify(tool.input, null, 2)}
-            </pre>
-          </div>
-          {tool.result && (
-            <div className={clsx("bg-strix-bg border-t border-strix-border-subtle", px, py)}>
-              <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Output</div>
-              <pre className={clsx(fontSize, "font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all overflow-y-auto", maxOutputH)}>
-                {tool.result}
+      <div
+        className={clsx(
+          "grid transition-[grid-template-rows] duration-300 ease-spring will-change-[grid-template-rows]",
+          isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        )}
+      >
+        <div
+          className={clsx(
+            "overflow-hidden transition-opacity duration-300 ease-spring",
+            isExpanded ? "opacity-100" : "opacity-0"
+          )}
+        >
+          <div className="border-t border-strix-border-subtle">
+            <div className={clsx("bg-strix-bg", px, py)}>
+              <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Input</div>
+              <pre className={clsx(fontSize, "font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all overflow-y-auto", maxInputH)}>
+                {JSON.stringify(tool.input, null, 2)}
               </pre>
             </div>
-          )}
+            {tool.result && (
+              <div className={clsx("bg-strix-bg border-t border-strix-border-subtle", px, py)}>
+                <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Output</div>
+                <pre className={clsx(fontSize, "font-mono text-strix-text-muted overflow-x-auto whitespace-pre-wrap break-all overflow-y-auto", maxOutputH)}>
+                  {tool.result}
+                </pre>
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

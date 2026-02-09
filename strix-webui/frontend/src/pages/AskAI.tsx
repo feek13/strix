@@ -4,8 +4,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   MessageSquare, Send, Loader2, Bot, Zap, Plus, Trash2,
-  FolderOpen, Download, Square, Copy, Check,
+  FolderOpen, Download, Square, Copy, Check, Menu,
 } from "lucide-react";
+import MobileDrawer from "../components/Layout/MobileDrawer";
+import { useIsMobile } from "../hooks/useIsMobile";
 import type { ChatSession } from "../types";
 import type { ToolBlock, StreamBlock, ChatMessage } from "../types/chat";
 import * as chatApi from "../lib/chatApi";
@@ -35,7 +37,7 @@ const CodeBlockWithCopy = memo(function CodeBlockWithCopy({
       </pre>
       <button
         onClick={handleCopy}
-        className="absolute top-1.5 right-1.5 p-1 rounded bg-strix-elevated/80 border border-strix-border-subtle text-strix-text-muted hover:text-white opacity-0 group-hover/code:opacity-100 transition-all"
+        className="absolute top-1.5 right-1.5 p-1 rounded bg-strix-elevated/80 border border-strix-border-subtle text-strix-text-muted hover:text-strix-text opacity-0 group-hover/code:opacity-100 transition-all"
         title="Copy code"
       >
         {copied ? <Check size={12} className="text-strix-accent" /> : <Copy size={12} />}
@@ -49,12 +51,12 @@ const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        h1: ({ children }) => <h3 className="text-sm font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h2: ({ children }) => <h3 className="text-sm font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h3: ({ children }) => <h4 className="text-xs font-bold text-white mt-2.5 mb-1 first:mt-0">{children}</h4>,
+        h1: ({ children }) => <h3 className="text-sm font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h2: ({ children }) => <h3 className="text-sm font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h3: ({ children }) => <h4 className="text-xs font-bold text-strix-text mt-2.5 mb-1 first:mt-0">{children}</h4>,
         h4: ({ children }) => <h4 className="text-xs font-semibold text-strix-text-secondary mt-2 mb-1 first:mt-0">{children}</h4>,
         p: ({ children }) => <p className="text-sm text-strix-text-secondary mb-2 last:mb-0 leading-relaxed">{children}</p>,
-        strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+        strong: ({ children }) => <strong className="font-semibold text-strix-text">{children}</strong>,
         em: ({ children }) => <em className="text-strix-text-secondary italic">{children}</em>,
         ul: ({ children }) => <ul className="text-sm text-strix-text-secondary mb-2 ml-4 space-y-0.5 list-disc">{children}</ul>,
         ol: ({ children }) => <ol className="text-sm text-strix-text-secondary mb-2 ml-4 space-y-0.5 list-decimal">{children}</ol>,
@@ -125,6 +127,8 @@ export default function AskAI() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const isMobile = useIsMobile();
+  const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
 
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -566,73 +570,85 @@ export default function AskAI() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
+  const sessionListContent = (
+    <>
+      <div className="h-12 border-b border-strix-border-subtle flex items-center px-3 gap-2 shrink-0">
+        <Bot size={16} className="text-strix-accent" />
+        <span className="text-sm font-medium flex-1">Chat Sessions</span>
+        <button
+          onClick={createNewSession}
+          className="text-strix-text-muted hover:text-strix-accent transition-colors p-1 rounded hover:bg-strix-elevated"
+          title="New Chat"
+        >
+          <Plus size={16} />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {sessionsLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 size={16} className="animate-spin text-strix-text-muted" />
+          </div>
+        ) : sessions.length === 0 ? (
+          <div className="text-xs text-strix-text-muted text-center py-8 px-4">
+            No conversations yet.
+            <br />Click + to start.
+          </div>
+        ) : (
+          <div className="py-1">
+            {sessions.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => { loadSession(s.id); setSessionDrawerOpen(false); }}
+                className={clsx(
+                  "w-full text-left px-3 py-2.5 transition-colors group",
+                  s.id === activeSessionId
+                    ? "bg-strix-elevated text-strix-text"
+                    : "text-strix-text-secondary hover:bg-strix-elevated/50 hover:text-strix-text"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={clsx(
+                    "w-2 h-2 rounded-full shrink-0",
+                    s.claudeSessionId ? "bg-strix-accent" : "bg-strix-text-muted/40"
+                  )} title={s.claudeSessionId ? "Resumable session" : "Not initialized"} />
+                  <span className="text-xs truncate flex-1">{s.title}</span>
+                  <button
+                    onClick={(e) => handleDeleteSession(s.id, e)}
+                    className="opacity-0 group-hover:opacity-100 text-strix-text-muted hover:text-severity-high transition-all shrink-0 p-0.5"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+                <div className="text-[10px] text-strix-text-muted mt-0.5 ml-4 flex items-center gap-1.5">
+                  <span>{formatRelativeTime(s.updatedAt)}</span>
+                  {s.cwd && (
+                    <>
+                      <span className="opacity-30">|</span>
+                      <span className="truncate" title={s.cwd}>{s.cwd.replace(/^\/Users\/[^/]+/, "~")}</span>
+                    </>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div className="h-full flex animate-fade-in">
-      {/* Session sidebar */}
-      <div className="w-64 border-r border-strix-border-subtle bg-strix-card flex flex-col shrink-0">
-        <div className="h-12 border-b border-strix-border-subtle flex items-center px-3 gap-2 shrink-0">
-          <Bot size={16} className="text-strix-accent" />
-          <span className="text-sm font-medium flex-1">Chat Sessions</span>
-          <button
-            onClick={createNewSession}
-            className="text-strix-text-muted hover:text-strix-accent transition-colors p-1 rounded hover:bg-strix-elevated"
-            title="New Chat"
-          >
-            <Plus size={16} />
-          </button>
+      {/* Session sidebar - desktop inline, mobile drawer */}
+      {isMobile ? (
+        <MobileDrawer isOpen={sessionDrawerOpen} onClose={() => setSessionDrawerOpen(false)} side="left" width="w-72">
+          {sessionListContent}
+        </MobileDrawer>
+      ) : (
+        <div className="w-64 border-r border-strix-border-subtle bg-strix-card flex flex-col shrink-0">
+          {sessionListContent}
         </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {sessionsLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 size={16} className="animate-spin text-strix-text-muted" />
-            </div>
-          ) : sessions.length === 0 ? (
-            <div className="text-xs text-strix-text-muted text-center py-8 px-4">
-              No conversations yet.
-              <br />Click + to start.
-            </div>
-          ) : (
-            <div className="py-1">
-              {sessions.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => loadSession(s.id)}
-                  className={clsx(
-                    "w-full text-left px-3 py-2.5 transition-colors group",
-                    s.id === activeSessionId
-                      ? "bg-strix-elevated text-white"
-                      : "text-strix-text-secondary hover:bg-strix-elevated/50 hover:text-white"
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={clsx(
-                      "w-2 h-2 rounded-full shrink-0",
-                      s.claudeSessionId ? "bg-strix-accent" : "bg-strix-text-muted/40"
-                    )} title={s.claudeSessionId ? "Resumable session" : "Not initialized"} />
-                    <span className="text-xs truncate flex-1">{s.title}</span>
-                    <button
-                      onClick={(e) => handleDeleteSession(s.id, e)}
-                      className="opacity-0 group-hover:opacity-100 text-strix-text-muted hover:text-severity-high transition-all shrink-0 p-0.5"
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  </div>
-                  <div className="text-[10px] text-strix-text-muted mt-0.5 ml-4 flex items-center gap-1.5">
-                    <span>{formatRelativeTime(s.updatedAt)}</span>
-                    {s.cwd && (
-                      <>
-                        <span className="opacity-30">|</span>
-                        <span className="truncate" title={s.cwd}>{s.cwd.replace(/^\/Users\/[^/]+/, "~")}</span>
-                      </>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -640,6 +656,15 @@ export default function AskAI() {
           <>
             {/* Chat header */}
             <div className="h-12 border-b border-strix-border-subtle flex items-center px-4 gap-2 shrink-0 bg-strix-card">
+              {isMobile && (
+                <button
+                  onClick={() => setSessionDrawerOpen(true)}
+                  className="p-1 -ml-1 text-strix-text-secondary hover:text-strix-text transition-colors shrink-0"
+                  aria-label="Open sessions"
+                >
+                  <Menu size={18} />
+                </button>
+              )}
               <span className="text-sm font-medium truncate flex-1">
                 {activeSession?.title || "New Chat"}
               </span>
@@ -756,7 +781,7 @@ export default function AskAI() {
                       <div className="absolute inset-2.5 rounded-full bg-strix-accent/20 animate-pulse" />
                     </div>
                     <div>
-                      <div className="text-sm text-white font-medium">Compressing context</div>
+                      <div className="text-sm text-strix-text font-medium">Compressing context</div>
                       <div className="text-xs text-strix-text-muted">Optimizing conversation memory...</div>
                     </div>
                   </div>
@@ -811,14 +836,14 @@ export default function AskAI() {
                     disabled={asking}
                     rows={1}
                     className={clsx(
-                      "flex-1 bg-strix-elevated border rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-strix-text-muted focus:outline-none transition-colors disabled:opacity-50 resize-none",
+                      "flex-1 bg-strix-elevated border rounded-lg px-4 py-2.5 text-sm text-strix-text placeholder:text-strix-text-muted focus:outline-none transition-colors disabled:opacity-50 resize-none",
                       executeMode ? "border-severity-high/30 focus:border-severity-high" : "border-strix-border focus:border-strix-accent"
                     )}
                   />
                   {asking ? (
                     <button
                       onClick={handleStop}
-                      className="px-3 py-2.5 rounded-lg bg-strix-elevated border border-strix-border-subtle text-strix-text-secondary hover:text-white hover:border-severity-critical/50 hover:bg-severity-critical/10 transition-colors shrink-0"
+                      className="px-3 py-2.5 rounded-lg bg-strix-elevated border border-strix-border-subtle text-strix-text-secondary hover:text-strix-text hover:border-severity-critical/50 hover:bg-severity-critical/10 transition-colors shrink-0"
                       title="Stop generating"
                     >
                       <Square size={16} />
@@ -829,7 +854,7 @@ export default function AskAI() {
                       disabled={!question.trim()}
                       className={clsx(
                         "px-3 py-2.5 rounded-lg disabled:opacity-30 transition-opacity shrink-0",
-                        executeMode ? "bg-severity-high text-white" : "bg-strix-accent text-black"
+                        executeMode ? "bg-severity-high text-strix-text-on-accent" : "bg-strix-accent text-strix-text-on-accent"
                       )}
                     >
                       {executeMode ? <Zap size={16} /> : <Send size={16} />}
@@ -847,19 +872,30 @@ export default function AskAI() {
           </>
         ) : (
           /* Empty state — no session selected */
-          <div className="flex-1 flex flex-col items-center justify-center text-strix-text-muted">
+          <div className="flex-1 flex flex-col items-center justify-center text-strix-text-muted px-4">
             <Bot size={48} className="mb-4 opacity-30" />
-            <h2 className="text-lg font-medium text-white mb-1">Ask AI</h2>
+            <h2 className="text-lg font-medium text-strix-text mb-1">Ask AI</h2>
             <p className="text-sm mb-6 text-center max-w-sm">
               Ask questions about security, analyze vulnerabilities, or execute security tests with AI assistance.
             </p>
-            <button
-              onClick={createNewSession}
-              className="flex items-center gap-2 px-4 py-2 bg-strix-accent text-black rounded-lg text-sm font-medium hover:bg-strix-accent-hover transition-colors"
-            >
-              <Plus size={16} />
-              New Chat
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={createNewSession}
+                className="flex items-center gap-2 px-4 py-2 bg-strix-accent text-strix-text-on-accent rounded-lg text-sm font-medium hover:bg-strix-accent-hover transition-colors"
+              >
+                <Plus size={16} />
+                New Chat
+              </button>
+              {isMobile && sessions.length > 0 && (
+                <button
+                  onClick={() => setSessionDrawerOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-strix-elevated text-strix-text-secondary rounded-lg text-sm font-medium hover:text-strix-text transition-colors"
+                >
+                  <Menu size={16} />
+                  Sessions
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

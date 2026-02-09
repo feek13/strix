@@ -6,45 +6,103 @@ import NetworkTopology from "../components/Visualization/NetworkTopology";
 import Timeline from "../components/Visualization/Timeline";
 import TerminalLog from "../components/Logs/TerminalLog";
 import NodeDetailPanel from "../components/NodeDetailPanel";
+import MobileTabBar, { type MobileTab } from "../components/Layout/MobileTabBar";
 import { useVulnerabilityStore } from "../store/vulnerabilityStore";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { useIsMobile } from "../hooks/useIsMobile";
 import clsx from "clsx";
-import { Network, Clock, ShieldAlert } from "lucide-react";
+import { Network, Clock, ShieldAlert, MessageSquare, Terminal, X } from "lucide-react";
 import type { SelectedNode } from "../types/nodeSelection";
 
 type ViewTab = "topology" | "timeline";
+type MobilePaneTab = "chat" | "topology" | "timeline" | "terminal";
+
+const mobileTabs: MobileTab[] = [
+  { id: "chat", label: "Chat", icon: <MessageSquare size={14} /> },
+  { id: "topology", label: "Attack Flow", icon: <Network size={14} /> },
+  { id: "timeline", label: "Timeline", icon: <Clock size={14} /> },
+  { id: "terminal", label: "Terminal", icon: <Terminal size={14} /> },
+];
 
 export default function LiveScan() {
   const { id } = useParams();
-  const { send } = useWebSocket();
+  const { send, status } = useWebSocket();
+  const isMobile = useIsMobile();
   const activeScan = useScanStore((s) => s.activeScan);
   const vulns = useVulnerabilityStore((s) => s.vulnerabilities);
   const [viewTab, setViewTab] = useState<ViewTab>("topology");
+  const [mobilePaneTab, setMobilePaneTab] = useState<MobilePaneTab>("chat");
   const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
-  // Keeps content rendered during close animation
+  // Content currently displayed in the panel (persists during close animation)
   const [renderedNode, setRenderedNode] = useState<SelectedNode | null>(null);
+  // Decoupled open state — drives the CSS translate
+  const [panelOpen, setPanelOpen] = useState(false);
+  // Pending node to switch to after slide-out completes
+  const switchTargetRef = useRef<SelectedNode | null>(null);
+  // Ref to read latest panelOpen without stale closure
+  const panelOpenRef = useRef(false);
+  panelOpenRef.current = panelOpen;
 
-  const panelOpen = selectedNode !== null;
-
-  useEffect(() => {
-    if (selectedNode) {
-      setRenderedNode(selectedNode);
+  // Called by NetworkTopology when a node is clicked (or deselected)
+  const handleNodeSelect = useCallback((node: SelectedNode | null) => {
+    if (!node) {
+      // Close: slide out
+      switchTargetRef.current = null;
+      setSelectedNode(null);
+      setPanelOpen(false);
+      return;
     }
-    // renderedNode is cleared via onTransitionEnd, not here
-  }, [selectedNode]);
 
-  const handlePanelTransitionEnd = useCallback(() => {
-    if (!selectedNode) setRenderedNode(null);
-  }, [selectedNode]);
+    setSelectedNode(node);
 
-  // Subscribe to specific scan if navigated directly
+    if (!panelOpenRef.current) {
+      // Fresh open: show content immediately, slide in
+      setRenderedNode(node);
+      setPanelOpen(true);
+    } else {
+      // Switch to different node while panel is open
+      if (isMobile) {
+        // Mobile: instant swap, no animation
+        setRenderedNode(node);
+      } else {
+        // Desktop: slide out first, swap content on transitionEnd, slide back in
+        switchTargetRef.current = node;
+        setPanelOpen(false);
+      }
+    }
+  }, [isMobile]);
+
+  const dismissPanel = useCallback(() => {
+    switchTargetRef.current = null;
+    setSelectedNode(null);
+    setPanelOpen(false);
+  }, []);
+
+  const handlePanelTransitionEnd = useCallback((e: React.TransitionEvent) => {
+    // Only react to this element's own transform transition,
+    // ignore bubbled transitionend events from child elements (buttons etc.)
+    if (e.target !== e.currentTarget) return;
+    if (e.propertyName !== "transform") return;
+
+    if (!panelOpenRef.current && switchTargetRef.current) {
+      // Slide-out finished during a switch — swap content & slide back in
+      const next = switchTargetRef.current;
+      switchTargetRef.current = null;
+      setRenderedNode(next);
+      // Use rAF to ensure the DOM updates before re-opening
+      requestAnimationFrame(() => setPanelOpen(true));
+    } else if (!panelOpenRef.current) {
+      // Normal close finished — clear rendered content
+      setRenderedNode(null);
+    }
+  }, []);
+
+  // Subscribe to specific scan when navigated directly or WS reconnects
   useEffect(() => {
-    if (id && id !== activeScan?.id) {
+    if (id && status === "connected") {
       send({ type: "SUBSCRIBE_SCAN", payload: { scanId: id } });
     }
-  }, [id, activeScan?.id, send]);
-
-  const dismissPanel = () => setSelectedNode(null);
+  }, [id, send, status]);
 
   // ---- Chat panel resize ----
   const chatRef = useRef<HTMLDivElement>(null);
@@ -100,6 +158,82 @@ export default function LiveScan() {
   const severityCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   for (const v of vulns) severityCounts[v.severity]++;
 
+  // Mobile layout
+  if (isMobile) {
+    return (
+      <div className="h-full flex flex-col animate-fade-in">
+        {/* Scan header bar */}
+        {activeScan && (
+          <div className="h-10 bg-strix-card border-b border-strix-border-subtle flex items-center px-4 gap-4 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <div
+                className={clsx(
+                  "w-2 h-2 rounded-full shrink-0",
+                  activeScan.status === "running" && "bg-strix-accent animate-pulse",
+                  activeScan.status === "completed" && "bg-strix-text-muted",
+                  activeScan.status === "failed" && "bg-severity-critical"
+                )}
+              />
+              <span className="text-sm font-medium truncate">{activeScan.target}</span>
+            </div>
+            <span className="text-xs text-strix-text-muted capitalize shrink-0">{activeScan.mode}</span>
+          </div>
+        )}
+
+        {/* Mobile tab bar */}
+        <MobileTabBar tabs={mobileTabs} activeTab={mobilePaneTab} onTabChange={(id) => setMobilePaneTab(id as MobilePaneTab)} />
+
+        {/* Active pane */}
+        <div className="flex-1 min-h-0">
+          {mobilePaneTab === "chat" && <ChatInterface />}
+          {mobilePaneTab === "topology" && <NetworkTopology onNodeSelect={handleNodeSelect} selectedNode={selectedNode} />}
+          {mobilePaneTab === "timeline" && <Timeline />}
+          {mobilePaneTab === "terminal" && <TerminalLog />}
+        </div>
+
+        {/* Node detail panel — full-screen overlay on mobile */}
+        {panelOpen && renderedNode && activeScan && (
+          <div className="fixed inset-0 z-50 bg-strix-bg flex flex-col">
+            <div className="h-10 bg-strix-card border-b border-strix-border-subtle flex items-center px-4 shrink-0">
+              <button onClick={dismissPanel} className="text-strix-text-muted hover:text-strix-text mr-3">
+                <X size={18} />
+              </button>
+              <span className="text-sm font-medium">Details</span>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <NodeDetailPanel
+                selection={renderedNode}
+                scanId={activeScan.id}
+                onClose={dismissPanel}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Findings bar */}
+        {vulns.length > 0 && (
+          <div className="h-8 bg-strix-card border-t border-strix-border-subtle flex items-center px-4 gap-3 shrink-0">
+            <ShieldAlert size={14} className="text-strix-text-muted" />
+            <span className="text-xs text-strix-text-muted">{vulns.length} findings</span>
+            <div className="flex gap-2 overflow-x-auto">
+              {severityCounts.critical > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-severity-critical/20 text-severity-critical shrink-0">
+                  {severityCounts.critical} CRIT
+                </span>
+              )}
+              {severityCounts.high > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-severity-high/20 text-severity-high shrink-0">
+                  {severityCounts.high} HIGH
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Desktop layout
   return (
     <div className="h-full flex flex-col animate-fade-in">
       {/* Scan header bar */}
@@ -138,7 +272,7 @@ export default function LiveScan() {
         />
 
         {/* Right: Visualization + Terminal + Detail Panel */}
-        <div className="flex-1 flex min-w-0">
+        <div className="flex-1 flex min-w-0 relative overflow-hidden">
           {/* Visualization + Terminal stack */}
           <div className="flex-1 flex flex-col min-w-0">
             {/* Tab bar */}
@@ -148,7 +282,7 @@ export default function LiveScan() {
                 className={clsx(
                   "flex items-center gap-1.5 px-3 py-1 rounded-btn text-xs transition-colors",
                   viewTab === "topology"
-                    ? "bg-strix-elevated text-white"
+                    ? "bg-strix-elevated text-strix-text"
                     : "text-strix-text-muted hover:text-strix-text-secondary"
                 )}
               >
@@ -160,7 +294,7 @@ export default function LiveScan() {
                 className={clsx(
                   "flex items-center gap-1.5 px-3 py-1 rounded-btn text-xs transition-colors",
                   viewTab === "timeline"
-                    ? "bg-strix-elevated text-white"
+                    ? "bg-strix-elevated text-strix-text"
                     : "text-strix-text-muted hover:text-strix-text-secondary"
                 )}
               >
@@ -171,7 +305,7 @@ export default function LiveScan() {
 
             {/* Visualization area */}
             <div className="flex-1 min-h-0">
-              {viewTab === "topology" ? <NetworkTopology onNodeSelect={setSelectedNode} /> : <Timeline />}
+              {viewTab === "topology" ? <NetworkTopology onNodeSelect={handleNodeSelect} selectedNode={selectedNode} /> : <Timeline />}
             </div>
 
             {/* Terminal resize handle */}
@@ -191,28 +325,23 @@ export default function LiveScan() {
             </div>
           </div>
 
-          {/* Node detail panel — animated wrapper */}
+          {/* Node detail panel — GPU-composited slide */}
           <div
             className={clsx(
-              "shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out",
-              panelOpen ? "w-80" : "w-0"
+              "absolute top-0 right-0 h-full w-80 will-change-transform transition-transform ease-spring z-10",
+              panelOpen ? "translate-x-0 duration-300" : "translate-x-full",
+              // Faster slide-out when switching nodes (150ms), normal close (300ms)
+              !panelOpen && (switchTargetRef.current ? "duration-150" : "duration-300")
             )}
             onTransitionEnd={handlePanelTransitionEnd}
           >
-            <div
-              className={clsx(
-                "h-full transition-transform duration-300 ease-in-out",
-                panelOpen ? "translate-x-0" : "translate-x-full"
-              )}
-            >
-              {renderedNode && activeScan && (
-                <NodeDetailPanel
-                  selection={renderedNode}
-                  scanId={activeScan.id}
-                  onClose={dismissPanel}
-                />
-              )}
-            </div>
+            {renderedNode && activeScan && (
+              <NodeDetailPanel
+                selection={renderedNode}
+                scanId={activeScan.id}
+                onClose={dismissPanel}
+              />
+            )}
           </div>
         </div>
       </div>

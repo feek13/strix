@@ -7,6 +7,7 @@ import {
   ArrowLeft, Download, MessageSquare, Send, X, Loader2,
   ShieldAlert, Bot, AlertTriangle, Zap, Plus, Trash2, Copy, Check,
 } from "lucide-react";
+import { useIsMobile } from "../hooks/useIsMobile";
 import type { Scan, Vulnerability, Agent, ToolExecution, ChatSession } from "../types";
 import type { ToolBlock, StreamBlock, ChatMessage } from "../types/chat";
 import * as chatApi from "../lib/chatApi";
@@ -40,7 +41,7 @@ const CodeBlockWithCopy = memo(function CodeBlockWithCopy({
       </pre>
       <button
         onClick={handleCopy}
-        className="absolute top-1.5 right-1.5 p-1 rounded bg-strix-elevated/80 border border-strix-border-subtle text-strix-text-muted hover:text-white opacity-0 group-hover/code:opacity-100 transition-all"
+        className="absolute top-1.5 right-1.5 p-1 rounded bg-strix-elevated/80 border border-strix-border-subtle text-strix-text-muted hover:text-strix-text opacity-0 group-hover/code:opacity-100 transition-all"
         title="Copy code"
       >
         {copied ? <Check size={12} className="text-strix-accent" /> : <Copy size={12} />}
@@ -55,12 +56,12 @@ const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        h1: ({ children }) => <h3 className="text-sm font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h2: ({ children }) => <h3 className="text-sm font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h3: ({ children }) => <h4 className="text-xs font-bold text-white mt-2.5 mb-1 first:mt-0">{children}</h4>,
+        h1: ({ children }) => <h3 className="text-sm font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h2: ({ children }) => <h3 className="text-sm font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h3: ({ children }) => <h4 className="text-xs font-bold text-strix-text mt-2.5 mb-1 first:mt-0">{children}</h4>,
         h4: ({ children }) => <h4 className="text-xs font-semibold text-strix-text-secondary mt-2 mb-1 first:mt-0">{children}</h4>,
         p: ({ children }) => <p className="text-xs text-strix-text-secondary mb-2 last:mb-0 leading-relaxed">{children}</p>,
-        strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+        strong: ({ children }) => <strong className="font-semibold text-strix-text">{children}</strong>,
         em: ({ children }) => <em className="text-strix-text-secondary italic">{children}</em>,
         ul: ({ children }) => <ul className="text-xs text-strix-text-secondary mb-2 ml-3 space-y-0.5 list-disc">{children}</ul>,
         ol: ({ children }) => <ol className="text-xs text-strix-text-secondary mb-2 ml-3 space-y-0.5 list-decimal">{children}</ol>,
@@ -133,12 +134,12 @@ const ReportMarkdown = memo(function ReportMarkdown({ content }: { content: stri
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        h1: ({ children }) => <h3 className="text-base font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h2: ({ children }) => <h3 className="text-sm font-bold text-white mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h3: ({ children }) => <h4 className="text-sm font-semibold text-white mt-2.5 mb-1 first:mt-0">{children}</h4>,
+        h1: ({ children }) => <h3 className="text-base font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h2: ({ children }) => <h3 className="text-sm font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
+        h3: ({ children }) => <h4 className="text-sm font-semibold text-strix-text mt-2.5 mb-1 first:mt-0">{children}</h4>,
         h4: ({ children }) => <h4 className="text-sm font-medium text-strix-text-secondary mt-2 mb-1 first:mt-0">{children}</h4>,
         p: ({ children }) => <p className="text-sm text-strix-text-secondary mb-2 last:mb-0 leading-relaxed">{children}</p>,
-        strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+        strong: ({ children }) => <strong className="font-semibold text-strix-text">{children}</strong>,
         em: ({ children }) => <em className="text-strix-text-secondary italic">{children}</em>,
         ul: ({ children }) => <ul className="text-sm text-strix-text-secondary mb-2 ml-4 space-y-1 list-disc">{children}</ul>,
         ol: ({ children }) => <ol className="text-sm text-strix-text-secondary mb-2 ml-4 space-y-1 list-decimal">{children}</ol>,
@@ -197,6 +198,7 @@ const SEV_BG: Record<string, string> = {
 export default function ReportPreview() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const reportRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -642,30 +644,30 @@ export default function ReportPreview() {
   return (
     <div className="h-full flex flex-col animate-fade-in">
       {/* Header */}
-      <div className="h-12 bg-strix-card border-b border-strix-border-subtle flex items-center px-4 gap-3 shrink-0">
-        <button onClick={() => navigate(-1)} className="text-strix-text-muted hover:text-white transition-colors">
+      <div className="h-12 bg-strix-card border-b border-strix-border-subtle flex items-center px-3 md:px-4 gap-2 md:gap-3 shrink-0">
+        <button onClick={() => navigate(-1)} className="text-strix-text-muted hover:text-strix-text transition-colors shrink-0">
           <ArrowLeft size={18} />
         </button>
         <span className="text-sm font-medium truncate flex-1">{scan.target}</span>
-        <span className="text-xs text-strix-text-muted capitalize">{scan.status}</span>
-        {durationMs && <span className="text-xs text-strix-text-muted">{formatDuration(durationMs)}</span>}
+        <span className="text-xs text-strix-text-muted capitalize hidden sm:inline">{scan.status}</span>
+        {durationMs && <span className="text-xs text-strix-text-muted hidden sm:inline">{formatDuration(durationMs)}</span>}
         <button
           onClick={() => { setChatOpen(!chatOpen); }}
           className={clsx(
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-xs transition-colors",
-            chatOpen ? "bg-strix-accent text-black" : "bg-strix-elevated text-strix-text-secondary hover:text-white"
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-xs transition-colors shrink-0",
+            chatOpen ? "bg-strix-accent text-strix-text-on-accent" : "bg-strix-elevated text-strix-text-secondary hover:text-strix-text"
           )}
         >
           <MessageSquare size={14} />
-          Ask AI
+          <span className="hidden sm:inline">Ask AI</span>
         </button>
         <button
           onClick={downloadPDF}
           disabled={generating}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-strix-elevated text-strix-text-secondary hover:text-white text-xs transition-colors disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-strix-elevated text-strix-text-secondary hover:text-strix-text text-xs transition-colors disabled:opacity-50 shrink-0"
         >
           {generating ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-          PDF
+          <span className="hidden sm:inline">PDF</span>
         </button>
       </div>
 
@@ -675,8 +677,9 @@ export default function ReportPreview() {
         <div
           ref={reportRef}
           onMouseUp={handleMouseUp}
-          className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto select-text overflow-x-hidden"
+          className="flex-1 overflow-y-auto select-text"
         >
+          <div className="max-w-4xl mx-auto p-4 md:p-8 overflow-x-hidden">
           {/* Title */}
           <div className="text-center mb-12">
             <div className="text-[10px] uppercase tracking-[0.3em] text-strix-text-muted mb-8">Confidential</div>
@@ -696,7 +699,7 @@ export default function ReportPreview() {
           <section className="mb-10">
             <h2 className="text-xl font-semibold mb-4">Executive Summary</h2>
 
-            <div className="grid grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <div className="bg-strix-card border border-strix-border-subtle rounded-card p-4 text-center">
                 <div className="text-2xl font-bold">{sorted.length}</div>
                 <div className="text-xs text-strix-text-muted">Findings</div>
@@ -846,15 +849,23 @@ export default function ReportPreview() {
           <div className="text-center text-xs text-strix-text-muted py-8">
             Generated by Strix — AI-Powered Security Testing Framework
           </div>
+          </div>
         </div>
 
         {/* AI Chat Panel */}
-        {chatOpen && (
-          <div className="w-96 border-l border-strix-border-subtle bg-strix-card flex flex-col shrink-0">
+        <div className={clsx(
+          "bg-strix-card flex flex-col",
+          isMobile
+            ? clsx("fixed inset-0 z-50 transition-transform duration-300 ease-in-out",
+                chatOpen ? "translate-y-0" : "translate-y-full pointer-events-none")
+            : clsx("shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out",
+                chatOpen ? "w-96 border-l border-strix-border-subtle" : "w-0")
+        )}>
+          <div className={clsx("flex flex-col h-full", !isMobile && "w-96")}>
             {/* Chat header */}
             <div className="h-10 border-b border-strix-border-subtle flex items-center px-3 gap-2 shrink-0">
               {!showSessionList && activeSessionId ? (
-                <button onClick={backToSessionList} className="text-strix-text-muted hover:text-white">
+                <button onClick={backToSessionList} className="text-strix-text-muted hover:text-strix-text">
                   <ArrowLeft size={16} />
                 </button>
               ) : (
@@ -874,7 +885,7 @@ export default function ReportPreview() {
                   <Plus size={16} />
                 </button>
               )}
-              <button onClick={() => setChatOpen(false)} className="text-strix-text-muted hover:text-white">
+              <button onClick={() => setChatOpen(false)} className="text-strix-text-muted hover:text-strix-text">
                 <X size={16} />
               </button>
             </div>
@@ -902,7 +913,7 @@ export default function ReportPreview() {
                       >
                         <div className="flex items-center gap-2">
                           <MessageSquare size={12} className="text-strix-text-muted shrink-0" />
-                          <span className="text-xs text-white truncate flex-1">{s.title}</span>
+                          <span className="text-xs text-strix-text truncate flex-1">{s.title}</span>
                           <button
                             onClick={(e) => handleDeleteSession(s.id, e)}
                             className="opacity-0 group-hover:opacity-100 text-strix-text-muted hover:text-severity-high transition-all shrink-0"
@@ -925,7 +936,7 @@ export default function ReportPreview() {
               <div className="px-3 py-2 border-b border-strix-border-subtle bg-strix-elevated">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[10px] uppercase text-strix-text-muted tracking-wider">Selected Context</span>
-                  <button onClick={() => setSelectedText("")} className="text-strix-text-muted hover:text-white">
+                  <button onClick={() => setSelectedText("")} className="text-strix-text-muted hover:text-strix-text">
                     <X size={12} />
                   </button>
                 </div>
@@ -1021,7 +1032,7 @@ export default function ReportPreview() {
                     <div className="absolute inset-2 rounded-full bg-strix-accent/20 animate-pulse" />
                   </div>
                   <div>
-                    <div className="text-xs text-white font-medium">Compressing context</div>
+                    <div className="text-xs text-strix-text font-medium">Compressing context</div>
                     <div className="text-[10px] text-strix-text-muted">Optimizing conversation memory...</div>
                   </div>
                 </div>
@@ -1067,7 +1078,7 @@ export default function ReportPreview() {
                   placeholder={executeMode ? "Tell AI what to execute..." : "Ask about this report..."}
                   disabled={asking}
                   className={clsx(
-                    "flex-1 bg-strix-elevated border rounded-btn px-3 py-2 text-xs text-white placeholder:text-strix-text-muted focus:outline-none transition-colors disabled:opacity-50",
+                    "flex-1 bg-strix-elevated border rounded-btn px-3 py-2 text-xs text-strix-text placeholder:text-strix-text-muted focus:outline-none transition-colors disabled:opacity-50",
                     executeMode ? "border-severity-high/30 focus:border-severity-high" : "border-strix-border focus:border-strix-accent"
                   )}
                 />
@@ -1076,7 +1087,7 @@ export default function ReportPreview() {
                   disabled={!question.trim() || asking}
                   className={clsx(
                     "px-3 py-2 rounded-btn disabled:opacity-30 transition-opacity",
-                    executeMode ? "bg-severity-high text-white" : "bg-strix-accent text-black"
+                    executeMode ? "bg-severity-high text-strix-text-on-accent" : "bg-strix-accent text-strix-text-on-accent"
                   )}
                 >
                   {executeMode ? <Zap size={14} /> : <Send size={14} />}
@@ -1092,7 +1103,7 @@ export default function ReportPreview() {
               </>
             )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Selection popup */}
@@ -1104,7 +1115,7 @@ export default function ReportPreview() {
         >
           <button
             onClick={openChatWithSelection}
-            className="flex items-center gap-1.5 bg-strix-accent text-black px-3 py-1.5 rounded-btn text-xs font-medium shadow-lg hover:bg-strix-accent-hover transition-colors"
+            className="flex items-center gap-1.5 bg-strix-accent text-strix-text-on-accent px-3 py-1.5 rounded-btn text-xs font-medium shadow-lg hover:bg-strix-accent-hover transition-colors"
           >
             <MessageSquare size={12} />
             Ask AI

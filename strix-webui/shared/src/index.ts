@@ -196,7 +196,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     id: "findings",
     label: "Findings",
     icon: "shield-alert",
-    tools: ["create_vulnerability_report"],
+    tools: ["create_vulnerability_report", "verify_state_change"],
   },
   {
     id: "notes",
@@ -224,6 +224,12 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     label: "Thinking",
     icon: "brain",
     tools: ["think"],
+  },
+  {
+    id: "prompts",
+    label: "Prompt Modules",
+    icon: "brain",
+    tools: ["prompt_modules_list", "prompt_module_view"],
   },
 ];
 

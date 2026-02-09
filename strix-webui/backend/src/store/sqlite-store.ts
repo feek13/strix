@@ -137,7 +137,7 @@ const stmts = {
   insertVulnerability: db.prepare(`INSERT INTO vulnerabilities (id, scan_id, agent_id, title, severity, description, affected_url, proof_of_concept, impact, remediation, cvss, references_json, discovered_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   getVulnsByScan: db.prepare(`SELECT * FROM vulnerabilities WHERE scan_id = ? ORDER BY discovered_at`),
 
-  insertLog: db.prepare(`INSERT INTO logs (id, scan_id, agent_id, level, message, tool_name, timestamp, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+  insertLog: db.prepare(`INSERT OR IGNORE INTO logs (id, scan_id, agent_id, level, message, tool_name, timestamp, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
   getLogsByScan: db.prepare(`SELECT * FROM logs WHERE scan_id = ? ORDER BY timestamp`),
   getRecentLogs: db.prepare(`SELECT * FROM logs WHERE scan_id = ? ORDER BY timestamp DESC LIMIT ?`),
 

@@ -2,27 +2,29 @@ import type { Config } from "tailwindcss";
 
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
         strix: {
-          bg: "#0A0A0A",
-          card: "#141414",
-          elevated: "#1F1F1F",
-          "border-subtle": "#2A2A2A",
-          border: "#3A3A3A",
-          text: "#FFFFFF",
-          "text-secondary": "#A0A0A0",
-          "text-muted": "#6B6B6B",
-          accent: "#22C55E",
-          "accent-hover": "#16A34A",
+          bg: "rgb(var(--color-strix-bg) / <alpha-value>)",
+          card: "rgb(var(--color-strix-card) / <alpha-value>)",
+          elevated: "rgb(var(--color-strix-elevated) / <alpha-value>)",
+          "border-subtle": "rgb(var(--color-strix-border-subtle) / <alpha-value>)",
+          border: "rgb(var(--color-strix-border) / <alpha-value>)",
+          text: "rgb(var(--color-strix-text) / <alpha-value>)",
+          "text-secondary": "rgb(var(--color-strix-text-secondary) / <alpha-value>)",
+          "text-muted": "rgb(var(--color-strix-text-muted) / <alpha-value>)",
+          accent: "rgb(var(--color-strix-accent) / <alpha-value>)",
+          "accent-hover": "rgb(var(--color-strix-accent-hover) / <alpha-value>)",
+          "text-on-accent": "rgb(var(--color-strix-text-on-accent) / <alpha-value>)",
         },
         severity: {
-          critical: "#FF0000",
-          high: "#FF6B00",
-          medium: "#FFB800",
-          low: "#00A8FF",
-          info: "#6B6B6B",
+          critical: "rgb(var(--color-severity-critical) / <alpha-value>)",
+          high: "rgb(var(--color-severity-high) / <alpha-value>)",
+          medium: "rgb(var(--color-severity-medium) / <alpha-value>)",
+          low: "rgb(var(--color-severity-low) / <alpha-value>)",
+          info: "rgb(var(--color-severity-info) / <alpha-value>)",
         },
       },
       fontFamily: {
@@ -32,6 +34,9 @@ export default {
       borderRadius: {
         card: "12px",
         btn: "8px",
+      },
+      transitionTimingFunction: {
+        spring: "cubic-bezier(0.32, 0.72, 0, 1)",
       },
       animation: {
         "pulse-slow": "pulse 3s ease-in-out infinite",
