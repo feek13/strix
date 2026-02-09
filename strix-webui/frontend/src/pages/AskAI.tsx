@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   MessageSquare, Send, Loader2, Bot, Zap, Plus, Trash2,
-  FolderOpen, Download,
+  FolderOpen, Download, Square, Copy, Check,
 } from "lucide-react";
 import type { ChatSession } from "../types";
 import type { ToolBlock, StreamBlock, ChatMessage } from "../types/chat";
@@ -14,6 +14,35 @@ import { formatRelativeTime } from "../lib/dateUtils";
 import { useTypewriter } from "../hooks/useTypewriter";
 import { ToolBlockRenderer } from "../components/ToolBlockRenderer";
 import ExportPreviewModal from "../components/ExportPreviewModal";
+import ScanLaunchProgress, { type PreflightStep } from "../components/ScanLaunchProgress";
+
+/** Code block with a GitHub-style copy button */
+const CodeBlockWithCopy = memo(function CodeBlockWithCopy({
+  children, preClassName, codeClassName,
+}: { children: React.ReactNode; preClassName: string; codeClassName: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    const text = String(children).replace(/\n$/, "");
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [children]);
+  return (
+    <div className="relative group/code">
+      <pre className={preClassName}>
+        <code className={codeClassName}>{children}</code>
+      </pre>
+      <button
+        onClick={handleCopy}
+        className="absolute top-1.5 right-1.5 p-1 rounded bg-strix-elevated/80 border border-strix-border-subtle text-strix-text-muted hover:text-white opacity-0 group-hover/code:opacity-100 transition-all"
+        title="Copy code"
+      >
+        {copied ? <Check size={12} className="text-strix-accent" /> : <Copy size={12} />}
+      </button>
+    </div>
+  );
+});
 
 const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }) {
   return (
@@ -34,9 +63,10 @@ const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }
           const isBlock = className?.includes("language-");
           if (isBlock) {
             return (
-              <pre className="bg-strix-bg border border-strix-border-subtle rounded-md p-3 my-2 overflow-x-auto">
-                <code className="text-xs font-mono text-strix-accent leading-relaxed">{children}</code>
-              </pre>
+              <CodeBlockWithCopy
+                preClassName="bg-strix-bg border border-strix-border-subtle rounded-md p-3 my-2 overflow-x-auto"
+                codeClassName="text-xs font-mono text-strix-accent leading-relaxed"
+              >{children}</CodeBlockWithCopy>
             );
           }
           return <code className="text-xs font-mono bg-strix-bg text-strix-accent px-1 py-0.5 rounded" {...props}>{children}</code>;
@@ -64,9 +94,37 @@ const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }
   );
 });
 
+/** Parse user message to extract optional report context */
+function parseReportContext(content: string): { context: string | null; question: string } {
+  const match = content.match(/^<!--report-context-->\n([\s\S]*?)\n<!--\/report-context-->\n([\s\S]*)$/);
+  if (match) return { context: match[1], question: match[2] };
+  return { context: null, question: content };
+}
+
+/** Renders user message content, with collapsible report context if present */
+const UserMessageContent = memo(function UserMessageContent({ content }: { content: string }) {
+  const { context, question } = parseReportContext(content);
+  if (!context) return <span className="whitespace-pre-wrap">{content}</span>;
+  return (
+    <>
+      <details className="mb-2 group">
+        <summary className="text-[10px] text-strix-text-muted cursor-pointer select-none flex items-center gap-1 hover:text-strix-text-secondary transition-colors">
+          <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+          Selected from report
+        </summary>
+        <div className="mt-1.5 pl-2 border-l-2 border-strix-accent/30 max-h-[200px] overflow-y-auto">
+          <ChatMarkdown content={context} />
+        </div>
+      </details>
+      <span className="whitespace-pre-wrap">{question}</span>
+    </>
+  );
+});
+
 export default function AskAI() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -81,6 +139,7 @@ export default function AskAI() {
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [compacting, setCompacting] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [preflightSteps, setPreflightSteps] = useState<PreflightStep[]>([]);
 
   const typewriter = useTypewriter();
   const streamingText = typewriter.text;
@@ -203,6 +262,11 @@ export default function AskAI() {
     setStreamBlocks([]);
     setStreamPhase(isExec ? "init" : null);
     setCompacting(false);
+    setPreflightSteps(isExec ? [
+      { step: 1, totalSteps: 3, id: "docker", label: "Docker Engine", status: "pending" },
+      { step: 2, totalSteps: 3, id: "image", label: "Sandbox Image", status: "pending" },
+      { step: 3, totalSteps: 3, id: "launch", label: "MCP Tools", status: "pending" },
+    ] : []);
 
     // Auto-create session if none active
     let sessionId = activeSessionId;
@@ -228,7 +292,14 @@ export default function AskAI() {
       } catch { /* ignore */ }
     }
 
+    // Declared outside try so catch can save partial responses on stream error
+    let fullText = "";
+    const blocks: StreamBlock[] = [];
+
     try {
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -240,6 +311,7 @@ export default function AskAI() {
           // (needed when mode changes and a new CLI session is created)
           history: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -250,8 +322,17 @@ export default function AskAI() {
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let fullText = "";
-      const blocks: StreamBlock[] = [];
+      let lastStepTransitionAt = 0;
+      const stepTransitions: Record<string, string> = {};
+      const ensureStepDelay = async (minMs: number) => {
+        if (lastStepTransitionAt > 0) {
+          const elapsed = Date.now() - lastStepTransitionAt;
+          if (elapsed < minMs) {
+            await new Promise((r) => setTimeout(r, minMs - elapsed));
+          }
+        }
+        lastStepTransitionAt = Date.now();
+      };
       let pendingFlush = 0;
       const flushBlocks = () => {
         if (!pendingFlush) {
@@ -281,7 +362,45 @@ export default function AskAI() {
 
             if (evt.type) {
               switch (evt.type) {
+                case "preflight_step": {
+                  const prevStepStatus = stepTransitions[evt.id];
+                  if (prevStepStatus !== evt.status) {
+                    await ensureStepDelay(evt.status === "running" ? 100 : 350);
+                    stepTransitions[evt.id] = evt.status;
+                  }
+                  setPreflightSteps((prev) =>
+                    prev.map((s) =>
+                      s.id === evt.id
+                        ? { ...s, status: evt.status, detail: evt.detail }
+                        : s
+                    )
+                  );
+                  break;
+                }
+                case "preflight_done":
+                  // All preflight done, mark step 3 (MCP Tools) as running
+                  await ensureStepDelay(100);
+                  stepTransitions["launch"] = "running";
+                  setPreflightSteps((prev) =>
+                    prev.map((s) =>
+                      s.id === "launch"
+                        ? { ...s, status: "running", detail: "Loading MCP tools..." }
+                        : s
+                    )
+                  );
+                  break;
                 case "init":
+                  // Claude CLI initialized — MCP tools loaded
+                  await ensureStepDelay(350);
+                  setPreflightSteps((prev) =>
+                    prev.map((s) =>
+                      s.id === "launch"
+                        ? { ...s, status: "done" }
+                        : s
+                    )
+                  );
+                  // Clear preflight after a short delay for visual feedback
+                  setTimeout(() => setPreflightSteps([]), 600);
                   setStreamPhase("working");
                   break;
                 case "compacting":
@@ -387,15 +506,51 @@ export default function AskAI() {
       }
     } catch (err) {
       typewriter.stop();
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
+      const isAbort = err instanceof DOMException && err.name === "AbortError";
+
+      // Mark any still-running tools as stopped
+      for (const block of blocks) {
+        if (block.type === "tool" && block.tool && block.tool.status === "running") {
+          block.tool.status = "error";
+          block.tool.result = "Stopped by user";
+        }
+      }
+
+      // Save partial assistant response if any was accumulated before stop/error
+      if ((fullText.trim() || blocks.length > 0) && sessionId) {
+        const partialMsg: ChatMessage = {
+          role: "assistant",
+          content: fullText,
+          blocks: blocks.length > 0 ? [...blocks] : undefined,
+          createdAt: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, partialMsg]);
+        try {
+          await chatApi.saveMessage(sessionId, {
+            role: "assistant",
+            content: fullText,
+            blocks: partialMsg.blocks ? JSON.stringify(partialMsg.blocks) : undefined,
+          });
+        } catch { /* ignore save error */ }
+      }
+
+      if (!isAbort) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
+      }
     } finally {
+      abortRef.current = null;
       setAsking(false);
       typewriter.reset();
       setStreamBlocks([]);
       setStreamPhase(null);
       setCompacting(false);
+      setPreflightSteps([]);
     }
+  };
+
+  const handleStop = () => {
+    abortRef.current?.abort();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -529,7 +684,7 @@ export default function AskAI() {
                           : "bg-strix-accent/15 text-strix-accent"
                       )}>
                         {msg.isExecute && <Zap size={12} className="inline mr-1.5 -mt-0.5" />}
-                        <span className="whitespace-pre-wrap">{msg.content}</span>
+                        <UserMessageContent content={msg.content} />
                       </div>
                     ) : msg.blocks ? (
                       <div className="space-y-2 max-w-[95%]">
@@ -603,8 +758,15 @@ export default function AskAI() {
                   </div>
                 )}
 
+                {/* Docker preflight progress (execute mode) */}
+                {preflightSteps.length > 0 && (
+                  <div className="max-w-md mx-auto">
+                    <ScanLaunchProgress steps={preflightSteps} />
+                  </div>
+                )}
+
                 {/* Loading indicator */}
-                {asking && !streamingText && streamBlocks.length === 0 && !compacting && (
+                {asking && !streamingText && streamBlocks.length === 0 && !compacting && preflightSteps.length === 0 && (
                   <div className={clsx("flex items-center gap-2 text-sm", streamPhase && executeMode ? "text-severity-high" : streamPhase ? "text-strix-accent" : "text-strix-text-muted")}>
                     <Loader2 size={16} className="animate-spin" />
                     {streamPhase === "init"
@@ -649,16 +811,26 @@ export default function AskAI() {
                       executeMode ? "border-severity-high/30 focus:border-severity-high" : "border-strix-border focus:border-strix-accent"
                     )}
                   />
-                  <button
-                    onClick={handleAsk}
-                    disabled={!question.trim() || asking}
-                    className={clsx(
-                      "px-3 py-2.5 rounded-lg disabled:opacity-30 transition-opacity shrink-0",
-                      executeMode ? "bg-severity-high text-white" : "bg-strix-accent text-black"
-                    )}
-                  >
-                    {executeMode ? <Zap size={16} /> : <Send size={16} />}
-                  </button>
+                  {asking ? (
+                    <button
+                      onClick={handleStop}
+                      className="px-3 py-2.5 rounded-lg bg-strix-elevated border border-strix-border-subtle text-strix-text-secondary hover:text-white hover:border-severity-critical/50 hover:bg-severity-critical/10 transition-colors shrink-0"
+                      title="Stop generating"
+                    >
+                      <Square size={16} />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleAsk}
+                      disabled={!question.trim()}
+                      className={clsx(
+                        "px-3 py-2.5 rounded-lg disabled:opacity-30 transition-opacity shrink-0",
+                        executeMode ? "bg-severity-high text-white" : "bg-strix-accent text-black"
+                      )}
+                    >
+                      {executeMode ? <Zap size={16} /> : <Send size={16} />}
+                    </button>
+                  )}
                 </div>
                 {executeMode && (
                   <div className="mt-1.5 text-[10px] text-severity-high/70 flex items-center gap-1">

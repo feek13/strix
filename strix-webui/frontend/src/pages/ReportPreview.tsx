@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   ArrowLeft, Download, MessageSquare, Send, X, Loader2,
-  ShieldAlert, Bot, AlertTriangle, Zap, Plus, Trash2,
+  ShieldAlert, Bot, AlertTriangle, Zap, Plus, Trash2, Copy, Check,
 } from "lucide-react";
 import type { Scan, Vulnerability, Agent, ToolExecution, ChatSession } from "../types";
 import type { ToolBlock, StreamBlock, ChatMessage } from "../types/chat";
@@ -20,6 +20,34 @@ interface ScanDetail {
   tools: ToolExecution[];
   vulnerabilities: Vulnerability[];
 }
+
+/** Code block with a GitHub-style copy button */
+const CodeBlockWithCopy = memo(function CodeBlockWithCopy({
+  children, preClassName, codeClassName,
+}: { children: React.ReactNode; preClassName: string; codeClassName: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    const text = String(children).replace(/\n$/, "");
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [children]);
+  return (
+    <div className="relative group/code">
+      <pre className={preClassName}>
+        <code className={codeClassName}>{children}</code>
+      </pre>
+      <button
+        onClick={handleCopy}
+        className="absolute top-1.5 right-1.5 p-1 rounded bg-strix-elevated/80 border border-strix-border-subtle text-strix-text-muted hover:text-white opacity-0 group-hover/code:opacity-100 transition-all"
+        title="Copy code"
+      >
+        {copied ? <Check size={12} className="text-strix-accent" /> : <Copy size={12} />}
+      </button>
+    </div>
+  );
+});
 
 /** Markdown renderer styled for the chat panel */
 const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }) {
@@ -41,9 +69,10 @@ const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }
           const isBlock = className?.includes("language-");
           if (isBlock) {
             return (
-              <pre className="bg-strix-bg border border-strix-border-subtle rounded p-2 my-1.5 overflow-x-auto">
-                <code className="text-[11px] font-mono text-strix-accent leading-relaxed">{children}</code>
-              </pre>
+              <CodeBlockWithCopy
+                preClassName="bg-strix-bg border border-strix-border-subtle rounded p-2 my-1.5 overflow-x-auto"
+                codeClassName="text-[11px] font-mono text-strix-accent leading-relaxed"
+              >{children}</CodeBlockWithCopy>
             );
           }
           return <code className="text-[11px] font-mono bg-strix-bg text-strix-accent px-1 py-0.5 rounded" {...props}>{children}</code>;
@@ -71,6 +100,33 @@ const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }
   );
 });
 
+/** Parse user message to extract optional report context */
+function parseReportContext(content: string): { context: string | null; question: string } {
+  const match = content.match(/^<!--report-context-->\n([\s\S]*?)\n<!--\/report-context-->\n([\s\S]*)$/);
+  if (match) return { context: match[1], question: match[2] };
+  return { context: null, question: content };
+}
+
+/** Renders user message content, with collapsible report context if present */
+const UserMessageContent = memo(function UserMessageContent({ content }: { content: string }) {
+  const { context, question } = parseReportContext(content);
+  if (!context) return <span className="whitespace-pre-wrap">{content}</span>;
+  return (
+    <>
+      <details className="mb-2 group">
+        <summary className="text-[10px] text-strix-text-muted cursor-pointer select-none flex items-center gap-1 hover:text-strix-text-secondary transition-colors">
+          <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+          Selected from report
+        </summary>
+        <div className="mt-1.5 pl-2 border-l-2 border-strix-accent/30 max-h-[200px] overflow-y-auto">
+          <ChatMarkdown content={context} />
+        </div>
+      </details>
+      <span className="whitespace-pre-wrap">{question}</span>
+    </>
+  );
+});
+
 /** Markdown renderer styled for the report vulnerability cards */
 const ReportMarkdown = memo(function ReportMarkdown({ content }: { content: string }) {
   return (
@@ -91,9 +147,10 @@ const ReportMarkdown = memo(function ReportMarkdown({ content }: { content: stri
           const isBlock = className?.includes("language-");
           if (isBlock) {
             return (
-              <pre className="bg-strix-bg border border-strix-border-subtle rounded-md p-3 my-2 overflow-x-auto">
-                <code className="text-xs font-mono text-strix-accent leading-relaxed break-all">{children}</code>
-              </pre>
+              <CodeBlockWithCopy
+                preClassName="bg-strix-bg border border-strix-border-subtle rounded-md p-3 my-2 overflow-x-auto"
+                codeClassName="text-xs font-mono text-strix-accent leading-relaxed break-all"
+              >{children}</CodeBlockWithCopy>
             );
           }
           return <code className="text-xs font-mono bg-strix-bg text-strix-accent px-1.5 py-0.5 rounded break-all" {...props}>{children}</code>;
@@ -299,8 +356,15 @@ export default function ReportPreview() {
     const q = question.trim();
     if (!q || asking) return;
 
+    // Capture and clear selectedText so it's included only in this message
+    const capturedSelectedText = selectedText;
+    if (capturedSelectedText) setSelectedText("");
+
     const isExec = executeMode;
-    const userMsg: ChatMessage = { role: "user", content: q, isExecute: isExec };
+    const displayContent = capturedSelectedText
+      ? `<!--report-context-->\n${capturedSelectedText}\n<!--/report-context-->\n${q}`
+      : q;
+    const userMsg: ChatMessage = { role: "user", content: displayContent, isExecute: isExec };
     setMessages((prev) => [...prev, userMsg]);
     setQuestion("");
     setAsking(true);
@@ -324,7 +388,7 @@ export default function ReportPreview() {
     // Save user message and auto-title if first message
     if (sessionId) {
       try {
-        await chatApi.saveMessage(sessionId, { role: "user", content: q, isExecute: isExec });
+        await chatApi.saveMessage(sessionId, { role: "user", content: displayContent, isExecute: isExec });
         // Auto-title: update session title from first user message
         const currentSession = sessions.find((s) => s.id === sessionId);
         if (currentSession && currentSession.title === "New Chat") {
@@ -341,7 +405,7 @@ export default function ReportPreview() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scanId: id,
-          selectedText,
+          selectedText: capturedSelectedText,
           question: q,
           sessionId,
           mode: isExec ? "execute" : "ask",
@@ -883,7 +947,7 @@ export default function ReportPreview() {
                         : "bg-strix-accent/20 text-strix-accent"
                     )}>
                       {msg.isExecute && <Zap size={10} className="inline mr-1 -mt-0.5" />}
-                      {msg.content}
+                      <UserMessageContent content={msg.content} />
                     </div>
                   ) : msg.blocks ? (
                     <div className="space-y-1.5">
