@@ -7,6 +7,7 @@ import { formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { Vulnerability, Scan } from "../types";
 import { SEVERITY_TEXT, SEVERITY_CARD_BG } from "../lib/severityStyles";
+import { ChatMarkdown } from "../components/Chat/ChatMarkdown";
 
 interface ReportPreview {
   scan: Scan;
@@ -218,14 +219,17 @@ export default function Reports() {
                         {v.cvss && <span className="text-xs text-strix-text-muted">CVSS {v.cvss}</span>}
                       </div>
                       {v.description && (
-                        <p className="text-xs text-strix-text-secondary mb-2">{v.description}</p>
+                        <div className="text-strix-text-secondary mb-2">
+                          <ChatMarkdown content={v.description} variant="compact" />
+                        </div>
                       )}
                       {v.affectedUrl && (
                         <div className="text-xs text-strix-accent mb-1">{v.affectedUrl}</div>
                       )}
                       {v.remediation && (
                         <div className="text-xs text-strix-text-muted mt-2">
-                          <span className="font-medium">Remediation:</span> {v.remediation}
+                          <span className="font-medium">Remediation:</span>
+                          <ChatMarkdown content={v.remediation} variant="compact" />
                         </div>
                       )}
                     </div>

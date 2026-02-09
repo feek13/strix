@@ -3,6 +3,7 @@ import { useScanStore } from "../store/scanStore";
 import { ShieldAlert, ExternalLink } from "lucide-react";
 import clsx from "clsx";
 import { SEVERITY_CARD_BG, SEVERITY_BADGE, SEVERITY_ORDER } from "../lib/severityStyles";
+import { ChatMarkdown } from "../components/Chat/ChatMarkdown";
 
 export default function Findings() {
   const vulns = useVulnerabilityStore((s) => s.vulnerabilities);
@@ -57,29 +58,31 @@ export default function Findings() {
               )}
 
               {v.description && (
-                <p className="text-sm text-strix-text-secondary mb-3 leading-relaxed">{v.description}</p>
+                <div className="mb-3">
+                  <ChatMarkdown content={v.description} variant="compact" />
+                </div>
               )}
 
               {v.proofOfConcept && (
                 <div className="mb-3">
                   <div className="text-xs text-strix-text-muted mb-1 font-medium">Proof of Concept</div>
-                  <pre className="bg-strix-bg border border-strix-border-subtle rounded-btn p-3 text-xs text-strix-text-secondary overflow-x-auto font-mono">
-                    {v.proofOfConcept}
-                  </pre>
+                  <div className="bg-strix-bg border border-strix-border-subtle rounded-btn p-3 overflow-x-auto">
+                    <ChatMarkdown content={v.proofOfConcept} variant="compact" />
+                  </div>
                 </div>
               )}
 
               {v.impact && (
                 <div className="mb-3">
                   <div className="text-xs text-strix-text-muted mb-1 font-medium">Impact</div>
-                  <p className="text-sm text-strix-text-secondary">{v.impact}</p>
+                  <ChatMarkdown content={v.impact} variant="compact" />
                 </div>
               )}
 
               {v.remediation && (
                 <div className="bg-strix-accent/5 border border-strix-accent/20 rounded-btn p-3">
                   <div className="text-xs text-strix-accent mb-1 font-medium">Remediation</div>
-                  <p className="text-sm text-strix-text-secondary">{v.remediation}</p>
+                  <ChatMarkdown content={v.remediation} variant="compact" />
                 </div>
               )}
             </div>
