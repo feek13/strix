@@ -20,11 +20,13 @@ import { useToolStore } from "../../store/toolStore";
 import { useScanStore } from "../../store/scanStore";
 import { useVulnerabilityStore } from "../../store/vulnerabilityStore";
 import clsx from "clsx";
-import { Globe, Bot, Wrench, ShieldAlert } from "lucide-react";
+import { Globe, Wrench, ShieldAlert } from "lucide-react";
+import { StrixIcon } from "../ui/StrixIcon";
 import type { SelectedNode } from "../../types/nodeSelection";
 import { TOOL_CATEGORIES } from "../../types";
 import { useTheme } from "../../hooks/useTheme";
 import { getThemeColors } from "../../lib/themeColors";
+import { SEVERITY_STROKE, SEVERITY_ORDER, SEVERITY_TEXT, SEVERITY_BADGE } from "../../lib/severityStyles";
 
 // ==================== Constants ====================
 
@@ -36,24 +38,6 @@ const NODE_WIDTH = 140;
 const FINDING_COLUMN_GAP = 280; // gap between rightmost tree node and findings column
 const FINDING_Y_GAP = 70;
 const FINDING_TOP_Y = 60; // findings start at this Y
-
-// ==================== Severity Colors & Order ====================
-
-const SEVERITY_STROKE: Record<string, string> = {
-  critical: "#FF0000",
-  high: "#FF6B00",
-  medium: "#FFB800",
-  low: "#00A8FF",
-  info: "#6B6B6B",
-};
-
-const SEVERITY_ORDER: Record<string, number> = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-  info: 4,
-};
 
 // ==================== Tool Name Helpers ====================
 
@@ -137,7 +121,7 @@ const AgentNode = memo(function AgentNode({ data }: { data: { label: string; sta
       <Handle type="target" position={Position.Top} className="!bg-strix-border !w-2 !h-2" />
       <Handle type="source" position={Position.Bottom} className="!bg-strix-border !w-2 !h-2" />
       <div className="flex items-center gap-1.5 mb-1">
-        <Bot size={14} className={isRunning ? "text-strix-accent" : "text-strix-text-muted"} />
+        <StrixIcon size={14} className={isRunning ? "text-strix-accent" : "text-strix-text-muted"} />
         <span className="text-xs font-medium text-strix-text truncate max-w-[100px]">{data.label}</span>
       </div>
       <div className={clsx("text-[10px] flex items-center gap-1", isRunning ? "text-strix-accent" : "text-strix-text-muted")}>
@@ -196,20 +180,6 @@ const ToolNode = memo(function ToolNode({ data }: { data: { label: string; statu
 
 const FindingNode = memo(function FindingNode({ data }: { data: { label: string; severity: string; agentName?: string; selected?: boolean } }) {
   const borderColor = SEVERITY_STROKE[data.severity] || SEVERITY_STROKE.info;
-  const colors: Record<string, string> = {
-    critical: "text-severity-critical",
-    high: "text-severity-high",
-    medium: "text-severity-medium",
-    low: "text-severity-low",
-    info: "text-strix-text-muted",
-  };
-  const badgeColors: Record<string, string> = {
-    critical: "bg-severity-critical/20 text-severity-critical",
-    high: "bg-severity-high/20 text-severity-high",
-    medium: "bg-severity-medium/20 text-severity-medium",
-    low: "bg-severity-low/20 text-severity-low",
-    info: "bg-strix-elevated text-strix-text-muted",
-  };
 
   return (
     <div
@@ -221,11 +191,11 @@ const FindingNode = memo(function FindingNode({ data }: { data: { label: string;
     >
       <Handle type="target" position={Position.Left} className="!bg-strix-border !w-1.5 !h-1.5" />
       <div className="flex items-center gap-1 mb-1">
-        <ShieldAlert size={11} className={colors[data.severity] || colors.info} />
+        <ShieldAlert size={11} className={SEVERITY_TEXT[data.severity] || SEVERITY_TEXT.info} />
         <span className="text-[10px] text-strix-text-secondary truncate">{data.label}</span>
       </div>
       <div className="flex items-center gap-1.5">
-        <span className={clsx("text-[9px] uppercase font-semibold px-1 py-0.5 rounded", badgeColors[data.severity] || badgeColors.info)}>
+        <span className={clsx("text-[9px] uppercase font-semibold px-1 py-0.5 rounded", SEVERITY_BADGE[data.severity] || SEVERITY_BADGE.info)}>
           {data.severity}
         </span>
         {data.agentName && (
@@ -667,7 +637,7 @@ function StatsOverlay({ agents, tools, vulns }: StatsOverlayProps) {
     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-strix-bg/80 backdrop-blur-sm will-change-[backdrop-filter] border border-strix-border-subtle rounded-lg px-3 py-2 z-10">
       <div className="flex items-center gap-4 text-[10px]">
         <div className="flex items-center gap-1.5">
-          <Bot size={10} className="text-strix-accent" />
+          <StrixIcon size={10} className="text-strix-accent" />
           <span className="text-strix-text-secondary">
             <span className="text-strix-text font-medium">{runningAgents}</span>
             <span className="text-strix-text-muted">/{totalAgents}</span>

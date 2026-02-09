@@ -8,6 +8,7 @@ import {
 import clsx from "clsx";
 import { format } from "date-fns";
 import ScanLaunchProgress, { type PreflightStep } from "../components/ScanLaunchProgress";
+import { STATUS_DOT, STATUS_TEXT } from "../lib/statusStyles";
 
 const modeOptions = [
   { id: "auto", label: "Auto", icon: Zap, desc: "Comprehensive assessment" },
@@ -25,22 +26,6 @@ const INITIAL_STEPS: PreflightStep[] = [
   { step: 2, totalSteps: 3, id: "image", label: "Sandbox Image", status: "pending" },
   { step: 3, totalSteps: 3, id: "launch", label: "Launching Scan", status: "pending" },
 ];
-
-const statusDot: Record<string, string> = {
-  running: "bg-strix-accent animate-pulse",
-  completed: "bg-strix-text-muted",
-  failed: "bg-severity-critical",
-  stopped: "bg-severity-medium",
-  pending: "bg-severity-low",
-};
-
-const statusColor: Record<string, string> = {
-  running: "text-strix-accent",
-  completed: "text-strix-text-muted",
-  failed: "text-severity-critical",
-  stopped: "text-severity-medium",
-  pending: "text-severity-low",
-};
 
 function formatDuration(startedAt: string | null, completedAt: string | null, status: string): string {
   if (!startedAt) return "-";
@@ -330,8 +315,8 @@ export default function Dashboard() {
                   >
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
-                        <div className={clsx("w-1.5 h-1.5 rounded-full", statusDot[scan.status])} />
-                        <span className={clsx("text-xs capitalize", statusColor[scan.status])}>
+                        <div className={clsx("w-1.5 h-1.5 rounded-full", STATUS_DOT[scan.status])} />
+                        <span className={clsx("text-xs capitalize", STATUS_TEXT[scan.status])}>
                           {scan.status}
                         </span>
                       </div>
@@ -379,8 +364,8 @@ export default function Dashboard() {
               >
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
-                    <div className={clsx("w-1.5 h-1.5 rounded-full", statusDot[scan.status])} />
-                    <span className={clsx("text-xs capitalize", statusColor[scan.status])}>
+                    <div className={clsx("w-1.5 h-1.5 rounded-full", STATUS_DOT[scan.status])} />
+                    <span className={clsx("text-xs capitalize", STATUS_TEXT[scan.status])}>
                       {scan.status}
                     </span>
                     <span className="text-xs text-strix-text-muted capitalize">{scan.mode}</span>

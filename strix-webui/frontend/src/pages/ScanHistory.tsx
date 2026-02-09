@@ -4,6 +4,7 @@ import { useScanStore } from "../store/scanStore";
 import { History, Trash2, Loader2, ChevronRight } from "lucide-react";
 import clsx from "clsx";
 import { formatDistanceToNow, format } from "date-fns";
+import { STATUS_DOT, STATUS_TEXT } from "../lib/statusStyles";
 
 export default function ScanHistory() {
   const navigate = useNavigate();
@@ -15,22 +16,6 @@ export default function ScanHistory() {
       .then(setScans)
       .catch(() => {});
   }, [setScans]);
-
-  const statusColors: Record<string, string> = {
-    running: "text-strix-accent",
-    completed: "text-strix-text-muted",
-    failed: "text-severity-critical",
-    stopped: "text-severity-medium",
-    pending: "text-severity-low",
-  };
-
-  const statusDots: Record<string, string> = {
-    running: "bg-strix-accent animate-pulse",
-    completed: "bg-strix-text-muted",
-    failed: "bg-severity-critical",
-    stopped: "bg-severity-medium",
-    pending: "bg-severity-low",
-  };
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto animate-fade-in">
@@ -79,8 +64,8 @@ export default function ScanHistory() {
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <div className={clsx("w-2 h-2 rounded-full", statusDots[scan.status])} />
-                        <span className={clsx("text-xs capitalize", statusColors[scan.status])}>
+                        <div className={clsx("w-2 h-2 rounded-full", STATUS_DOT[scan.status])} />
+                        <span className={clsx("text-xs capitalize", STATUS_TEXT[scan.status])}>
                           {scan.status}
                         </span>
                       </div>
@@ -129,8 +114,8 @@ export default function ScanHistory() {
               >
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
-                    <div className={clsx("w-1.5 h-1.5 rounded-full", statusDots[scan.status])} />
-                    <span className={clsx("text-xs capitalize", statusColors[scan.status])}>
+                    <div className={clsx("w-1.5 h-1.5 rounded-full", STATUS_DOT[scan.status])} />
+                    <span className={clsx("text-xs capitalize", STATUS_TEXT[scan.status])}>
                       {scan.status}
                     </span>
                     <span className="text-xs text-strix-text-muted capitalize">{scan.mode}</span>

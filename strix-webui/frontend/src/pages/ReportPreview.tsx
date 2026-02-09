@@ -5,15 +5,21 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   ArrowLeft, Download, MessageSquare, Send, X, Loader2,
-  ShieldAlert, Bot, AlertTriangle, Zap, Plus, Trash2, Copy, Check,
+  ShieldAlert, AlertTriangle, Zap, Plus, Trash2,
 } from "lucide-react";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { Scan, Vulnerability, Agent, ToolExecution, ChatSession } from "../types";
 import type { ToolBlock, StreamBlock, ChatMessage } from "../types/chat";
 import * as chatApi from "../lib/chatApi";
+import { parseReportContext } from "../lib/chatUtils";
 import { formatRelativeTime, formatDuration } from "../lib/dateUtils";
 import { useTypewriter } from "../hooks/useTypewriter";
+import { CodeBlockWithCopy } from "../components/ui/CodeBlockWithCopy";
+import { ChatMarkdown } from "../components/Chat/ChatMarkdown";
+import { UserMessageContent } from "../components/Chat/UserMessageContent";
 import { ToolBlockRenderer } from "../components/ToolBlockRenderer";
+import { SEVERITY_TEXT, SEVERITY_CARD_BG } from "../lib/severityStyles";
+import { StrixIcon } from "../components/ui/StrixIcon";
 
 interface ScanDetail {
   scan: Scan;
@@ -21,112 +27,6 @@ interface ScanDetail {
   tools: ToolExecution[];
   vulnerabilities: Vulnerability[];
 }
-
-/** Code block with a GitHub-style copy button */
-const CodeBlockWithCopy = memo(function CodeBlockWithCopy({
-  children, preClassName, codeClassName,
-}: { children: React.ReactNode; preClassName: string; codeClassName: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(() => {
-    const text = String(children).replace(/\n$/, "");
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [children]);
-  return (
-    <div className="relative group/code">
-      <pre className={preClassName}>
-        <code className={codeClassName}>{children}</code>
-      </pre>
-      <button
-        onClick={handleCopy}
-        className="absolute top-1.5 right-1.5 p-1 rounded bg-strix-elevated/80 border border-strix-border-subtle text-strix-text-muted hover:text-strix-text opacity-0 group-hover/code:opacity-100 transition-all"
-        title="Copy code"
-      >
-        {copied ? <Check size={12} className="text-strix-accent" /> : <Copy size={12} />}
-      </button>
-    </div>
-  );
-});
-
-/** Markdown renderer styled for the chat panel */
-const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        h1: ({ children }) => <h3 className="text-sm font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h2: ({ children }) => <h3 className="text-sm font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h3: ({ children }) => <h4 className="text-xs font-bold text-strix-text mt-2.5 mb-1 first:mt-0">{children}</h4>,
-        h4: ({ children }) => <h4 className="text-xs font-semibold text-strix-text-secondary mt-2 mb-1 first:mt-0">{children}</h4>,
-        p: ({ children }) => <p className="text-xs text-strix-text-secondary mb-2 last:mb-0 leading-relaxed">{children}</p>,
-        strong: ({ children }) => <strong className="font-semibold text-strix-text">{children}</strong>,
-        em: ({ children }) => <em className="text-strix-text-secondary italic">{children}</em>,
-        ul: ({ children }) => <ul className="text-xs text-strix-text-secondary mb-2 ml-3 space-y-0.5 list-disc">{children}</ul>,
-        ol: ({ children }) => <ol className="text-xs text-strix-text-secondary mb-2 ml-3 space-y-0.5 list-decimal">{children}</ol>,
-        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-        code: ({ className, children, ...props }: ComponentPropsWithoutRef<"code"> & { inline?: boolean }) => {
-          const isBlock = className?.includes("language-");
-          if (isBlock) {
-            return (
-              <CodeBlockWithCopy
-                preClassName="bg-strix-bg border border-strix-border-subtle rounded p-2 my-1.5 overflow-x-auto"
-                codeClassName="text-[11px] font-mono text-strix-accent leading-relaxed"
-              >{children}</CodeBlockWithCopy>
-            );
-          }
-          return <code className="text-[11px] font-mono bg-strix-bg text-strix-accent px-1 py-0.5 rounded" {...props}>{children}</code>;
-        },
-        pre: ({ children }) => <>{children}</>,
-        blockquote: ({ children }) => (
-          <blockquote className="border-l-2 border-strix-accent/40 pl-2.5 my-1.5 text-xs text-strix-text-muted italic">{children}</blockquote>
-        ),
-        hr: () => <hr className="border-strix-border-subtle my-2" />,
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noopener noreferrer" className="text-strix-accent hover:underline">{children}</a>
-        ),
-        table: ({ children }) => (
-          <div className="overflow-x-auto my-2">
-            <table className="text-[11px] w-full border-collapse">{children}</table>
-          </div>
-        ),
-        thead: ({ children }) => <thead className="border-b border-strix-border-subtle">{children}</thead>,
-        th: ({ children }) => <th className="text-left px-2 py-1 text-strix-text-secondary font-semibold">{children}</th>,
-        td: ({ children }) => <td className="px-2 py-1 text-strix-text-muted border-t border-strix-border-subtle/50">{children}</td>,
-      }}
-    >
-      {content}
-    </ReactMarkdown>
-  );
-});
-
-/** Parse user message to extract optional report context */
-function parseReportContext(content: string): { context: string | null; question: string } {
-  const match = content.match(/^<!--report-context-->\n([\s\S]*?)\n<!--\/report-context-->\n([\s\S]*)$/);
-  if (match) return { context: match[1], question: match[2] };
-  return { context: null, question: content };
-}
-
-/** Renders user message content, with collapsible report context if present */
-const UserMessageContent = memo(function UserMessageContent({ content }: { content: string }) {
-  const { context, question } = parseReportContext(content);
-  if (!context) return <span className="whitespace-pre-wrap">{content}</span>;
-  return (
-    <>
-      <details className="mb-2 group">
-        <summary className="text-[10px] text-strix-text-muted cursor-pointer select-none flex items-center gap-1 hover:text-strix-text-secondary transition-colors">
-          <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-          Selected from report
-        </summary>
-        <div className="mt-1.5 pl-2 border-l-2 border-strix-accent/30 max-h-[200px] overflow-y-auto">
-          <ChatMarkdown content={context} />
-        </div>
-      </details>
-      <span className="whitespace-pre-wrap">{question}</span>
-    </>
-  );
-});
 
 /** Markdown renderer styled for the report vulnerability cards */
 const ReportMarkdown = memo(function ReportMarkdown({ content }: { content: string }) {
@@ -178,22 +78,6 @@ const ReportMarkdown = memo(function ReportMarkdown({ content }: { content: stri
     </ReactMarkdown>
   );
 });
-
-const SEV_COLORS: Record<string, string> = {
-  critical: "text-severity-critical",
-  high: "text-severity-high",
-  medium: "text-severity-medium",
-  low: "text-severity-low",
-  info: "text-strix-text-muted",
-};
-
-const SEV_BG: Record<string, string> = {
-  critical: "bg-severity-critical/10 border-severity-critical/30",
-  high: "bg-severity-high/10 border-severity-high/30",
-  medium: "bg-severity-medium/10 border-severity-medium/30",
-  low: "bg-severity-low/10 border-severity-low/30",
-  info: "bg-strix-elevated border-strix-border-subtle",
-};
 
 export default function ReportPreview() {
   const { id } = useParams();
@@ -713,7 +597,7 @@ export default function ReportPreview() {
                 <div className="text-xs text-strix-text-muted">Tools</div>
               </div>
               <div className="bg-strix-card border border-strix-border-subtle rounded-card p-4 text-center">
-                <div className={clsx("text-2xl font-bold", SEV_COLORS[risk.toLowerCase()] || "text-strix-accent")}>
+                <div className={clsx("text-2xl font-bold", SEVERITY_TEXT[risk.toLowerCase()] || "text-strix-accent")}>
                   {risk}
                 </div>
                 <div className="text-xs text-strix-text-muted">Risk Level</div>
@@ -726,7 +610,7 @@ export default function ReportPreview() {
                 const count = sevCounts[sev];
                 return (
                   <div key={sev} className="flex items-center gap-3">
-                    <span className={clsx("w-16 text-xs uppercase font-medium", SEV_COLORS[sev])}>{sev}</span>
+                    <span className={clsx("w-16 text-xs uppercase font-medium", SEVERITY_TEXT[sev])}>{sev}</span>
                     <div className="flex-1 h-2 bg-strix-elevated rounded-full overflow-hidden">
                       <div
                         className={clsx("h-full rounded-full transition-all", {
@@ -759,13 +643,13 @@ export default function ReportPreview() {
             )}
 
             {sorted.map((v, i) => (
-              <div key={v.id} className={clsx("border rounded-card p-5 mb-4 overflow-hidden", SEV_BG[v.severity])}>
+              <div key={v.id} className={clsx("border rounded-card p-5 mb-4 overflow-hidden", SEVERITY_CARD_BG[v.severity])}>
                 <div className="flex items-start gap-2 mb-3">
-                  <ShieldAlert size={18} className={clsx(SEV_COLORS[v.severity], "shrink-0 mt-0.5")} />
+                  <ShieldAlert size={18} className={clsx(SEVERITY_TEXT[v.severity], "shrink-0 mt-0.5")} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold">{i + 1}. {v.title}</span>
-                      <span className={clsx("text-[10px] px-2 py-0.5 rounded-full uppercase font-bold border shrink-0", SEV_BG[v.severity], SEV_COLORS[v.severity])}>
+                      <span className={clsx("text-[10px] px-2 py-0.5 rounded-full uppercase font-bold border shrink-0", SEVERITY_CARD_BG[v.severity], SEVERITY_TEXT[v.severity])}>
                         {v.severity}
                       </span>
                       {v.cvss && <span className="text-xs text-strix-text-muted shrink-0">CVSS {v.cvss}</span>}
@@ -869,7 +753,7 @@ export default function ReportPreview() {
                   <ArrowLeft size={16} />
                 </button>
               ) : (
-                <Bot size={16} className="text-strix-accent" />
+                <StrixIcon size={16} className="text-strix-accent" />
               )}
               <span className="text-sm font-medium flex-1 truncate">
                 {showSessionList
@@ -899,7 +783,7 @@ export default function ReportPreview() {
                   </div>
                 ) : sessions.length === 0 ? (
                   <div className="text-xs text-strix-text-muted text-center py-8 px-4">
-                    <Bot size={24} className="mx-auto mb-2 opacity-40" />
+                    <StrixIcon size={24} className="mx-auto mb-2 opacity-40" />
                     No chat sessions yet.
                     <br />Click + to start a new conversation.
                   </div>
@@ -969,7 +853,7 @@ export default function ReportPreview() {
                       {msg.blocks.map((block, bi) =>
                         block.type === "text" && block.text ? (
                           <div key={bi} className="bg-strix-elevated border border-strix-border-subtle rounded-card px-3 py-2">
-                            <ChatMarkdown content={block.text} />
+                            <ChatMarkdown content={block.text} variant="compact" />
                           </div>
                         ) : block.type === "tool" && block.tool ? (
                           <ToolBlockRenderer
@@ -985,7 +869,7 @@ export default function ReportPreview() {
                     </div>
                   ) : (
                     <div className="bg-strix-elevated border border-strix-border-subtle rounded-card px-3 py-2">
-                      <ChatMarkdown content={msg.content} />
+                      <ChatMarkdown content={msg.content} variant="compact" />
                     </div>
                   )}
                 </div>
@@ -997,7 +881,7 @@ export default function ReportPreview() {
                   {streamBlocks.map((block, bi) =>
                     block.type === "text" && block.text ? (
                       <div key={bi} className="bg-strix-elevated border border-strix-border-subtle rounded-card px-3 py-2">
-                        <ChatMarkdown content={block.text} />
+                        <ChatMarkdown content={block.text} variant="compact" />
                         {bi === streamBlocks.length - 1 && (
                           <span className="inline-block w-1.5 h-3 bg-strix-accent animate-pulse ml-0.5" />
                         )}
@@ -1019,7 +903,7 @@ export default function ReportPreview() {
               {/* Ask mode: streaming text */}
               {streamingText && streamBlocks.length === 0 && (
                 <div className="bg-strix-elevated border border-strix-border-subtle rounded-card px-3 py-2">
-                  <ChatMarkdown content={streamingText} />
+                  <ChatMarkdown content={streamingText} variant="compact" />
                   <span className="inline-block w-1.5 h-3 bg-strix-accent animate-pulse ml-0.5" />
                 </div>
               )}

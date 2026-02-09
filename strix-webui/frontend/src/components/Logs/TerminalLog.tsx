@@ -2,7 +2,9 @@ import { useRef, useEffect, useState } from "react";
 import { useLogStore } from "../../store/logStore";
 import { useToolStore } from "../../store/toolStore";
 import clsx from "clsx";
-import { ArrowDown, ChevronRight } from "lucide-react";
+import { ArrowDown } from "lucide-react";
+import { Collapsible } from "../ui/Collapsible";
+import { ExpandIcon } from "../ui/ExpandIcon";
 
 export default function TerminalLog() {
   const logs = useLogStore((s) => s.logs);
@@ -75,13 +77,7 @@ export default function TerminalLog() {
                 {/* Expand icon for tools */}
                 {tool && (
                   <span className="shrink-0 text-strix-text-muted">
-                    <ChevronRight
-                      size={10}
-                      className={clsx(
-                        "transition-transform duration-300 ease-spring will-change-transform",
-                        isExpanded && "rotate-90"
-                      )}
-                    />
+                    <ExpandIcon isExpanded={!!isExpanded} size={10} />
                   </span>
                 )}
 
@@ -101,18 +97,7 @@ export default function TerminalLog() {
 
               {/* Expanded tool detail */}
               {tool && (
-                <div
-                  className={clsx(
-                    "grid transition-[grid-template-rows] duration-300 ease-spring will-change-[grid-template-rows]",
-                    isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-                  )}
-                >
-                  <div
-                    className={clsx(
-                      "overflow-hidden transition-opacity duration-300 ease-spring",
-                      isExpanded ? "opacity-100" : "opacity-0"
-                    )}
-                  >
+                <Collapsible isExpanded={!!isExpanded}>
                     <div className="ml-20 mr-2 my-1 p-2 bg-strix-elevated rounded border border-strix-border-subtle">
                       <div className="text-strix-text-muted mb-1">Input:</div>
                       <pre className="text-strix-text-secondary text-[10px] overflow-x-auto max-h-32 overflow-y-auto">
@@ -134,8 +119,7 @@ export default function TerminalLog() {
                         </div>
                       )}
                     </div>
-                  </div>
-                </div>
+                </Collapsible>
               )}
             </div>
           );

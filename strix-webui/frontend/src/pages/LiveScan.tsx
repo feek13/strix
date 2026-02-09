@@ -13,6 +13,8 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import clsx from "clsx";
 import { Network, Clock, ShieldAlert, MessageSquare, Terminal, X } from "lucide-react";
 import type { SelectedNode } from "../types/nodeSelection";
+import { SEVERITY_BADGE } from "../lib/severityStyles";
+import { STATUS_DOT } from "../lib/statusStyles";
 
 type ViewTab = "topology" | "timeline";
 type MobilePaneTab = "chat" | "topology" | "timeline" | "terminal";
@@ -169,9 +171,7 @@ export default function LiveScan() {
               <div
                 className={clsx(
                   "w-2 h-2 rounded-full shrink-0",
-                  activeScan.status === "running" && "bg-strix-accent animate-pulse",
-                  activeScan.status === "completed" && "bg-strix-text-muted",
-                  activeScan.status === "failed" && "bg-severity-critical"
+                  STATUS_DOT[activeScan.status]
                 )}
               />
               <span className="text-sm font-medium truncate">{activeScan.target}</span>
@@ -217,12 +217,12 @@ export default function LiveScan() {
             <span className="text-xs text-strix-text-muted">{vulns.length} findings</span>
             <div className="flex gap-2 overflow-x-auto">
               {severityCounts.critical > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-severity-critical/20 text-severity-critical shrink-0">
+                <span className={clsx("text-[10px] px-1.5 py-0.5 rounded shrink-0", SEVERITY_BADGE.critical)}>
                   {severityCounts.critical} CRIT
                 </span>
               )}
               {severityCounts.high > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-severity-high/20 text-severity-high shrink-0">
+                <span className={clsx("text-[10px] px-1.5 py-0.5 rounded shrink-0", SEVERITY_BADGE.high)}>
                   {severityCounts.high} HIGH
                 </span>
               )}
@@ -243,9 +243,7 @@ export default function LiveScan() {
             <div
               className={clsx(
                 "w-2 h-2 rounded-full",
-                activeScan.status === "running" && "bg-strix-accent animate-pulse",
-                activeScan.status === "completed" && "bg-strix-text-muted",
-                activeScan.status === "failed" && "bg-severity-critical"
+                STATUS_DOT[activeScan.status]
               )}
             />
             <span className="text-sm font-medium">{activeScan.target}</span>
@@ -353,22 +351,22 @@ export default function LiveScan() {
           <span className="text-xs text-strix-text-muted">{vulns.length} findings</span>
           <div className="flex gap-2">
             {severityCounts.critical > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-severity-critical/20 text-severity-critical">
+              <span className={clsx("text-[10px] px-1.5 py-0.5 rounded", SEVERITY_BADGE.critical)}>
                 {severityCounts.critical} CRIT
               </span>
             )}
             {severityCounts.high > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-severity-high/20 text-severity-high">
+              <span className={clsx("text-[10px] px-1.5 py-0.5 rounded", SEVERITY_BADGE.high)}>
                 {severityCounts.high} HIGH
               </span>
             )}
             {severityCounts.medium > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-severity-medium/20 text-severity-medium">
+              <span className={clsx("text-[10px] px-1.5 py-0.5 rounded", SEVERITY_BADGE.medium)}>
                 {severityCounts.medium} MED
               </span>
             )}
             {(severityCounts.low + severityCounts.info) > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-strix-elevated text-strix-text-muted">
+              <span className={clsx("text-[10px] px-1.5 py-0.5 rounded", SEVERITY_BADGE.info)}>
                 {severityCounts.low + severityCounts.info} LOW
               </span>
             )}

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, memo, type ComponentPropsWithoutRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useScanStore } from "../../store/scanStore";
-import { Send, StopCircle, Loader2, Bot, Zap, MessageSquare, RotateCcw } from "lucide-react";
+import { Send, StopCircle, Loader2, Zap, MessageSquare, RotateCcw } from "lucide-react";
+import { StrixIcon } from "../ui/StrixIcon";
 import clsx from "clsx";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -384,7 +385,7 @@ export default function ChatInterface() {
       <div className="flex flex-col h-full">
         <div className="flex-1 overflow-y-auto p-3 flex items-center justify-center">
           <div className="text-center text-strix-text-muted text-xs px-4">
-            <Bot size={24} className="mx-auto mb-2 opacity-30" />
+            <StrixIcon size={24} className="mx-auto mb-2 opacity-30" />
             Enter a target URL to begin scanning
           </div>
         </div>
@@ -422,7 +423,7 @@ export default function ChatInterface() {
       {/* Stop scan header */}
       <div className="px-3 py-2 border-b border-strix-border-subtle flex items-center gap-2 shrink-0">
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <Bot size={14} className="text-strix-accent shrink-0" />
+          <StrixIcon size={14} className="text-strix-accent shrink-0" />
           <span className="text-xs text-strix-text-secondary truncate">
             {messages.length > 0 ? `${messages.length} messages` : "Ask about this scan"}
           </span>
@@ -452,7 +453,7 @@ export default function ChatInterface() {
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {messages.length === 0 && !streamingText && !asking && (
           <div className="flex flex-col items-center justify-center h-full text-strix-text-muted px-4">
-            <Bot size={20} className="mb-2 opacity-30" />
+            <StrixIcon size={20} className="mb-2 opacity-30" />
             <p className="text-[11px] text-center leading-relaxed">
               Ask questions about the scan, vulnerabilities found, or request deeper analysis.
             </p>

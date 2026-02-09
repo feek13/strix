@@ -1,10 +1,8 @@
-import { useState, useEffect, useRef, useCallback, memo, type ComponentPropsWithoutRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import clsx from "clsx";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
-  MessageSquare, Send, Loader2, Bot, Zap, Plus, Trash2,
-  FolderOpen, Download, Square, Copy, Check, Menu,
+  MessageSquare, Send, Loader2, Zap, Plus, Trash2,
+  FolderOpen, Download, Square, Menu,
 } from "lucide-react";
 import MobileDrawer from "../components/Layout/MobileDrawer";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -12,116 +10,15 @@ import type { ChatSession } from "../types";
 import type { ToolBlock, StreamBlock, ChatMessage } from "../types/chat";
 import * as chatApi from "../lib/chatApi";
 import { generateChatMarkdown, type ExportMessage } from "../lib/chatExport";
+import { parseReportContext } from "../lib/chatUtils";
 import { formatRelativeTime } from "../lib/dateUtils";
 import { useTypewriter } from "../hooks/useTypewriter";
+import { ChatMarkdown } from "../components/Chat/ChatMarkdown";
+import { UserMessageContent } from "../components/Chat/UserMessageContent";
 import { ToolBlockRenderer } from "../components/ToolBlockRenderer";
+import { StrixIcon } from "../components/ui/StrixIcon";
 import ExportPreviewModal from "../components/ExportPreviewModal";
 import ScanLaunchProgress, { type PreflightStep } from "../components/ScanLaunchProgress";
-
-/** Code block with a GitHub-style copy button */
-const CodeBlockWithCopy = memo(function CodeBlockWithCopy({
-  children, preClassName, codeClassName,
-}: { children: React.ReactNode; preClassName: string; codeClassName: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(() => {
-    const text = String(children).replace(/\n$/, "");
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [children]);
-  return (
-    <div className="relative group/code">
-      <pre className={preClassName}>
-        <code className={codeClassName}>{children}</code>
-      </pre>
-      <button
-        onClick={handleCopy}
-        className="absolute top-1.5 right-1.5 p-1 rounded bg-strix-elevated/80 border border-strix-border-subtle text-strix-text-muted hover:text-strix-text opacity-0 group-hover/code:opacity-100 transition-all"
-        title="Copy code"
-      >
-        {copied ? <Check size={12} className="text-strix-accent" /> : <Copy size={12} />}
-      </button>
-    </div>
-  );
-});
-
-const ChatMarkdown = memo(function ChatMarkdown({ content }: { content: string }) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        h1: ({ children }) => <h3 className="text-sm font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h2: ({ children }) => <h3 className="text-sm font-bold text-strix-text mt-3 mb-1.5 first:mt-0">{children}</h3>,
-        h3: ({ children }) => <h4 className="text-xs font-bold text-strix-text mt-2.5 mb-1 first:mt-0">{children}</h4>,
-        h4: ({ children }) => <h4 className="text-xs font-semibold text-strix-text-secondary mt-2 mb-1 first:mt-0">{children}</h4>,
-        p: ({ children }) => <p className="text-sm text-strix-text-secondary mb-2 last:mb-0 leading-relaxed">{children}</p>,
-        strong: ({ children }) => <strong className="font-semibold text-strix-text">{children}</strong>,
-        em: ({ children }) => <em className="text-strix-text-secondary italic">{children}</em>,
-        ul: ({ children }) => <ul className="text-sm text-strix-text-secondary mb-2 ml-4 space-y-0.5 list-disc">{children}</ul>,
-        ol: ({ children }) => <ol className="text-sm text-strix-text-secondary mb-2 ml-4 space-y-0.5 list-decimal">{children}</ol>,
-        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-        code: ({ className, children, ...props }: ComponentPropsWithoutRef<"code"> & { inline?: boolean }) => {
-          const isBlock = className?.includes("language-");
-          if (isBlock) {
-            return (
-              <CodeBlockWithCopy
-                preClassName="bg-strix-bg border border-strix-border-subtle rounded-md p-3 my-2 overflow-x-auto"
-                codeClassName="text-xs font-mono text-strix-accent leading-relaxed"
-              >{children}</CodeBlockWithCopy>
-            );
-          }
-          return <code className="text-xs font-mono bg-strix-bg text-strix-accent px-1 py-0.5 rounded" {...props}>{children}</code>;
-        },
-        pre: ({ children }) => <>{children}</>,
-        blockquote: ({ children }) => (
-          <blockquote className="border-l-2 border-strix-accent/40 pl-3 my-2 text-sm text-strix-text-muted italic">{children}</blockquote>
-        ),
-        hr: () => <hr className="border-strix-border-subtle my-2" />,
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noopener noreferrer" className="text-strix-accent hover:underline">{children}</a>
-        ),
-        table: ({ children }) => (
-          <div className="overflow-x-auto my-2">
-            <table className="text-xs w-full border-collapse">{children}</table>
-          </div>
-        ),
-        thead: ({ children }) => <thead className="border-b border-strix-border-subtle">{children}</thead>,
-        th: ({ children }) => <th className="text-left px-2 py-1 text-strix-text-secondary font-semibold">{children}</th>,
-        td: ({ children }) => <td className="px-2 py-1 text-strix-text-muted border-t border-strix-border-subtle/50">{children}</td>,
-      }}
-    >
-      {content}
-    </ReactMarkdown>
-  );
-});
-
-/** Parse user message to extract optional report context */
-function parseReportContext(content: string): { context: string | null; question: string } {
-  const match = content.match(/^<!--report-context-->\n([\s\S]*?)\n<!--\/report-context-->\n([\s\S]*)$/);
-  if (match) return { context: match[1], question: match[2] };
-  return { context: null, question: content };
-}
-
-/** Renders user message content, with collapsible report context if present */
-const UserMessageContent = memo(function UserMessageContent({ content }: { content: string }) {
-  const { context, question } = parseReportContext(content);
-  if (!context) return <span className="whitespace-pre-wrap">{content}</span>;
-  return (
-    <>
-      <details className="mb-2 group">
-        <summary className="text-[10px] text-strix-text-muted cursor-pointer select-none flex items-center gap-1 hover:text-strix-text-secondary transition-colors">
-          <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-          Selected from report
-        </summary>
-        <div className="mt-1.5 pl-2 border-l-2 border-strix-accent/30 max-h-[200px] overflow-y-auto">
-          <ChatMarkdown content={context} />
-        </div>
-      </details>
-      <span className="whitespace-pre-wrap">{question}</span>
-    </>
-  );
-});
 
 export default function AskAI() {
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -573,7 +470,7 @@ export default function AskAI() {
   const sessionListContent = (
     <>
       <div className="h-12 border-b border-strix-border-subtle flex items-center px-3 gap-2 shrink-0">
-        <Bot size={16} className="text-strix-accent" />
+        <StrixIcon size={16} className="text-strix-accent" />
         <span className="text-sm font-medium flex-1">Chat Sessions</span>
         <button
           onClick={createNewSession}
@@ -873,7 +770,7 @@ export default function AskAI() {
         ) : (
           /* Empty state — no session selected */
           <div className="flex-1 flex flex-col items-center justify-center text-strix-text-muted px-4">
-            <Bot size={48} className="mb-4 opacity-30" />
+            <StrixIcon size={48} className="mb-4 opacity-30" />
             <h2 className="text-lg font-medium text-strix-text mb-1">Ask AI</h2>
             <p className="text-sm mb-6 text-center max-w-sm">
               Ask questions about security, analyze vulnerabilities, or execute security tests with AI assistance.

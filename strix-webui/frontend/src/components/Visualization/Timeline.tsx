@@ -4,7 +4,8 @@ import { useAgentStore } from "../../store/agentStore";
 import { useVulnerabilityStore } from "../../store/vulnerabilityStore";
 import { useScanStore } from "../../store/scanStore";
 import clsx from "clsx";
-import { Bot, Wrench, ShieldAlert } from "lucide-react";
+import { Wrench, ShieldAlert } from "lucide-react";
+import { StrixIcon } from "../ui/StrixIcon";
 
 interface TimelineEvent {
   id: string;
@@ -241,7 +242,7 @@ export default function Timeline() {
                       )}px`,
                     }}
                   >
-                    <Bot size={10} className="shrink-0 text-strix-accent" />
+                    <StrixIcon size={10} className="shrink-0 text-strix-accent" />
                     <span className="text-[10px] text-strix-accent font-medium truncate">
                       {lane.agentName}
                     </span>

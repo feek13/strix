@@ -4,10 +4,13 @@ import {
   LayoutDashboard, Radio, History, FileText, Settings,
   Search, Syringe, Lock, Workflow, Server, Target,
   Globe, Network, Terminal, Code, FileEdit,
-  ShieldAlert, StickyNote, Brain, Box, Users, Bot,
-  ChevronRight, Plug, Zap, Wrench,
+  ShieldAlert, StickyNote, Brain, Box, Users,
+  Plug, Zap, Wrench,
 } from "lucide-react";
 import clsx from "clsx";
+import { StrixIcon } from "../ui/StrixIcon";
+import { Collapsible } from "../ui/Collapsible";
+import { ExpandIcon } from "../ui/ExpandIcon";
 
 const iconMap: Record<string, React.ComponentType<{ size?: number | string }>> = {
   search: Search, syringe: Syringe, lock: Lock, workflow: Workflow,
@@ -33,7 +36,7 @@ interface SubCategory {
 const mainNav: NavItem[] = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
   { path: "/scan", label: "Active Scan", icon: Radio },
-  { path: "/ask", label: "Ask AI", icon: Bot },
+  { path: "/ask", label: "Ask AI", icon: StrixIcon },
 ];
 
 const toolsSubCategories: SubCategory[] = [
@@ -183,30 +186,13 @@ function CollapsibleToolsSection({
         onClick={() => setTopOpen((o) => !o)}
         className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-strix-text-muted hover:text-strix-text transition-colors"
       >
-        <ChevronRight
-          size={12}
-          className={clsx(
-            "transition-transform duration-300 ease-spring will-change-transform",
-            topOpen && "rotate-90"
-          )}
-        />
+        <ExpandIcon isExpanded={topOpen} size={12} />
         <Wrench size={12} />
         <span>Tools</span>
       </button>
 
       {/* Sub-categories */}
-      <div
-        className={clsx(
-          "grid transition-[grid-template-rows] duration-300 ease-spring will-change-[grid-template-rows]",
-          topOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-        )}
-      >
-        <div
-          className={clsx(
-            "overflow-hidden transition-opacity duration-300 ease-spring",
-            topOpen ? "opacity-100" : "opacity-0"
-          )}
-        >
+      <Collapsible isExpanded={topOpen}>
           {subCategories.map((sub) => {
             const isSubExpanded = expandedSubs.has(sub.id);
             const hasActiveChild = sub.id === activeSubCategoryId;
@@ -223,31 +209,14 @@ function CollapsibleToolsSection({
                       : "text-strix-text-secondary hover:text-strix-text"
                   )}
                 >
-                  <ChevronRight
-                    size={10}
-                    className={clsx(
-                      "transition-transform duration-300 ease-spring will-change-transform shrink-0",
-                      isSubExpanded && "rotate-90"
-                    )}
-                  />
+                  <ExpandIcon isExpanded={isSubExpanded} size={10} className="shrink-0" />
                   <span className="shrink-0"><sub.icon size={14} /></span>
                   <span>{sub.label}</span>
                   <span className="ml-auto text-[10px] text-strix-text-muted">{sub.items.length}</span>
                 </button>
 
                 {/* Sub-category children */}
-                <div
-                  className={clsx(
-                    "grid transition-[grid-template-rows] duration-300 ease-spring will-change-[grid-template-rows]",
-                    isSubExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-                  )}
-                >
-                  <div
-                    className={clsx(
-                      "overflow-hidden transition-opacity duration-300 ease-spring",
-                      isSubExpanded ? "opacity-100" : "opacity-0"
-                    )}
-                  >
+                <Collapsible isExpanded={isSubExpanded}>
                     {sub.items.map((item) => {
                       const active = isItemActive(pathname, item.path);
                       return (
@@ -267,13 +236,11 @@ function CollapsibleToolsSection({
                         </NavLink>
                       );
                     })}
-                  </div>
-                </div>
+                </Collapsible>
               </div>
             );
           })}
-        </div>
-      </div>
+      </Collapsible>
     </div>
   );
 }

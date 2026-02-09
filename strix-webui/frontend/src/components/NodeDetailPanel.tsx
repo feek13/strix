@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, memo, type ComponentPropsWithoutRef } from "react";
-import { X, Globe, Bot, Wrench, ShieldAlert, Maximize2 } from "lucide-react";
+import { X, Globe, Wrench, ShieldAlert, Maximize2 } from "lucide-react";
+import { StrixIcon } from "./ui/StrixIcon";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -8,6 +9,7 @@ import type { SelectedNode } from "../types/nodeSelection";
 import type { Scan, Agent, ToolExecution, Vulnerability } from "../types";
 import { useAgentStore } from "../store/agentStore";
 import { formatRelativeTime, formatDuration } from "../lib/dateUtils";
+import { SEVERITY_TEXT, SEVERITY_BADGE, SEVERITY_CARD_BG } from "../lib/severityStyles";
 
 interface NodeDetailPanelProps {
   selection: SelectedNode;
@@ -106,18 +108,11 @@ function StatusDot({ status }: { status: string }) {
 }
 
 function SeverityBadge({ severity, size = "sm" }: { severity: string; size?: "sm" | "lg" }) {
-  const colors: Record<string, string> = {
-    critical: "bg-severity-critical/20 text-severity-critical",
-    high: "bg-severity-high/20 text-severity-high",
-    medium: "bg-severity-medium/20 text-severity-medium",
-    low: "bg-severity-low/20 text-severity-low",
-    info: "bg-strix-elevated text-strix-text-muted",
-  };
   return (
     <span
       className={clsx(
         "uppercase font-semibold rounded",
-        colors[severity] || colors.info,
+        SEVERITY_BADGE[severity] || SEVERITY_BADGE.info,
         size === "lg" ? "text-xs px-2 py-1" : "text-[10px] px-1.5 py-0.5"
       )}
     >
@@ -125,22 +120,6 @@ function SeverityBadge({ severity, size = "sm" }: { severity: string; size?: "sm
     </span>
   );
 }
-
-const SEV_BG: Record<string, string> = {
-  critical: "bg-severity-critical/10 border-severity-critical/30",
-  high: "bg-severity-high/10 border-severity-high/30",
-  medium: "bg-severity-medium/10 border-severity-medium/30",
-  low: "bg-severity-low/10 border-severity-low/30",
-  info: "bg-strix-elevated border-strix-border-subtle",
-};
-
-const SEV_COLORS: Record<string, string> = {
-  critical: "text-severity-critical",
-  high: "text-severity-high",
-  medium: "text-severity-medium",
-  low: "text-severity-low",
-  info: "text-strix-text-muted",
-};
 
 function computeDuration(start: string | null, end: string | null): string | null {
   if (!start) return null;
@@ -312,7 +291,7 @@ function AgentFull({ agent }: { agent: Agent }) {
   return (
     <div className="border border-strix-border-subtle rounded-card p-6 bg-strix-card">
       <div className="flex items-center gap-3 mb-5">
-        <Bot size={24} className={agent.status === "running" ? "text-strix-accent" : "text-strix-text-muted"} />
+        <StrixIcon size={24} className={agent.status === "running" ? "text-strix-accent" : "text-strix-text-muted"} />
         <div>
           <h2 className="text-lg font-semibold text-strix-text">{agent.name}</h2>
           <div className="text-xs text-strix-text-muted mt-0.5">Agent ID: {agent.id}</div>
@@ -397,9 +376,9 @@ function ToolFull({ tool }: { tool: ToolExecution }) {
 
 function FindingFull({ vuln }: { vuln: Vulnerability }) {
   return (
-    <div className={clsx("border rounded-card p-6 overflow-hidden", SEV_BG[vuln.severity])}>
+    <div className={clsx("border rounded-card p-6 overflow-hidden", SEVERITY_CARD_BG[vuln.severity])}>
       <div className="flex items-start gap-3 mb-4">
-        <ShieldAlert size={22} className={clsx(SEV_COLORS[vuln.severity], "shrink-0 mt-0.5")} />
+        <ShieldAlert size={22} className={clsx(SEVERITY_TEXT[vuln.severity], "shrink-0 mt-0.5")} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-lg font-semibold text-strix-text">{vuln.title}</h2>
@@ -510,13 +489,13 @@ function DetailModal({ selection, onClose }: { selection: SelectedNode; onClose:
 
 // ==================== Icon + title per type ====================
 
-const META: Record<SelectedNode["type"], { icon: typeof Globe; label: (n: SelectedNode) => string }> = {
+const META: Record<SelectedNode["type"], { icon: React.ComponentType<{ size?: number | string; className?: string }>; label: (n: SelectedNode) => string }> = {
   target: {
     icon: Globe,
     label: (n) => (n as { data: Scan }).data.target,
   },
   agent: {
-    icon: Bot,
+    icon: StrixIcon,
     label: (n) => (n as { data: Agent }).data.name,
   },
   tool: {

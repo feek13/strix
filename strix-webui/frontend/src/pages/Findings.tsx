@@ -2,32 +2,15 @@ import { useVulnerabilityStore } from "../store/vulnerabilityStore";
 import { useScanStore } from "../store/scanStore";
 import { ShieldAlert, ExternalLink } from "lucide-react";
 import clsx from "clsx";
-
-const severityOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+import { SEVERITY_CARD_BG, SEVERITY_BADGE, SEVERITY_ORDER } from "../lib/severityStyles";
 
 export default function Findings() {
   const vulns = useVulnerabilityStore((s) => s.vulnerabilities);
   const scan = useScanStore((s) => s.activeScan);
 
   const sorted = [...vulns].sort(
-    (a, b) => (severityOrder[a.severity] ?? 5) - (severityOrder[b.severity] ?? 5)
+    (a, b) => (SEVERITY_ORDER[a.severity] ?? 5) - (SEVERITY_ORDER[b.severity] ?? 5)
   );
-
-  const colors: Record<string, string> = {
-    critical: "border-severity-critical/30 bg-severity-critical/5",
-    high: "border-severity-high/30 bg-severity-high/5",
-    medium: "border-severity-medium/30 bg-severity-medium/5",
-    low: "border-severity-low/30 bg-severity-low/5",
-    info: "border-strix-border-subtle bg-strix-card",
-  };
-
-  const badgeColors: Record<string, string> = {
-    critical: "bg-severity-critical text-strix-text-on-accent",
-    high: "bg-severity-high text-strix-text-on-accent",
-    medium: "bg-severity-medium text-strix-text-on-accent",
-    low: "bg-severity-low text-strix-text-on-accent",
-    info: "bg-strix-text-muted text-strix-text-on-accent",
-  };
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto animate-fade-in">
@@ -48,10 +31,10 @@ export default function Findings() {
       ) : (
         <div className="space-y-3">
           {sorted.map((v) => (
-            <div key={v.id} className={clsx("border rounded-card p-5", colors[v.severity])}>
+            <div key={v.id} className={clsx("border rounded-card p-5", SEVERITY_CARD_BG[v.severity])}>
               <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
                 <div className="flex items-center gap-3 flex-wrap">
-                  <span className={clsx("text-[10px] px-2 py-1 rounded-btn font-bold uppercase", badgeColors[v.severity])}>
+                  <span className={clsx("text-[10px] px-2 py-1 rounded-btn font-bold uppercase", SEVERITY_BADGE[v.severity])}>
                     {v.severity}
                   </span>
                   <h3 className="font-medium">{v.title}</h3>

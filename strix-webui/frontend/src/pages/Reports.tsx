@@ -6,6 +6,7 @@ import clsx from "clsx";
 import { formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { Vulnerability, Scan } from "../types";
+import { SEVERITY_TEXT, SEVERITY_CARD_BG } from "../lib/severityStyles";
 
 interface ReportPreview {
   scan: Scan;
@@ -206,27 +207,12 @@ export default function Reports() {
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">Vulnerability Details</h3>
                 {preview.vulnerabilities.map((v) => {
-                  const colors: Record<string, string> = {
-                    critical: "border-severity-critical/30 bg-severity-critical/5",
-                    high: "border-severity-high/30 bg-severity-high/5",
-                    medium: "border-severity-medium/30 bg-severity-medium/5",
-                    low: "border-severity-low/30 bg-severity-low/5",
-                    info: "border-strix-border-subtle",
-                  };
-                  const textColors: Record<string, string> = {
-                    critical: "text-severity-critical",
-                    high: "text-severity-high",
-                    medium: "text-severity-medium",
-                    low: "text-severity-low",
-                    info: "text-strix-text-muted",
-                  };
-
                   return (
-                    <div key={v.id} className={clsx("border rounded-card p-4", colors[v.severity])}>
+                    <div key={v.id} className={clsx("border rounded-card p-4", SEVERITY_CARD_BG[v.severity])}>
                       <div className="flex items-center gap-2 mb-2">
-                        <ShieldAlert size={16} className={textColors[v.severity]} />
+                        <ShieldAlert size={16} className={SEVERITY_TEXT[v.severity]} />
                         <span className="font-medium text-sm">{v.title}</span>
-                        <span className={clsx("text-[10px] px-1.5 py-0.5 rounded uppercase font-bold", textColors[v.severity])}>
+                        <span className={clsx("text-[10px] px-1.5 py-0.5 rounded uppercase font-bold", SEVERITY_TEXT[v.severity])}>
                           {v.severity}
                         </span>
                         {v.cvss && <span className="text-xs text-strix-text-muted">CVSS {v.cvss}</span>}

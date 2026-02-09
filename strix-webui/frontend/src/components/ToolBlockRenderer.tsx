@@ -1,5 +1,7 @@
 import clsx from "clsx";
-import { ChevronRight, Check, XCircle, Terminal, Loader2 } from "lucide-react";
+import { Check, XCircle, Terminal, Loader2 } from "lucide-react";
+import { Collapsible } from "./ui/Collapsible";
+import { ExpandIcon } from "./ui/ExpandIcon";
 import type { ToolBlock } from "../types/chat";
 
 interface ToolBlockRendererProps {
@@ -29,13 +31,7 @@ export function ToolBlockRenderer({ tool, toolKey, isExpanded, onToggle, variant
         onClick={onToggle}
         className={clsx("w-full flex items-center gap-2 bg-strix-elevated hover:bg-strix-bg transition-colors text-left", px, py)}
       >
-        <ChevronRight
-          size={12}
-          className={clsx(
-            "text-strix-text-muted transition-transform duration-300 ease-spring will-change-transform shrink-0",
-            isExpanded && "rotate-90"
-          )}
-        />
+        <ExpandIcon isExpanded={isExpanded} size={12} className="text-strix-text-muted shrink-0" />
         {tool.status === "running" ? (
           <Loader2 size={12} className="text-severity-high animate-spin shrink-0" />
         ) : (
@@ -53,18 +49,7 @@ export function ToolBlockRenderer({ tool, toolKey, isExpanded, onToggle, variant
         {tool.status === "done" && <Check size={12} className="text-strix-accent shrink-0" />}
         {tool.status === "error" && <XCircle size={12} className="text-severity-high shrink-0" />}
       </button>
-      <div
-        className={clsx(
-          "grid transition-[grid-template-rows] duration-300 ease-spring will-change-[grid-template-rows]",
-          isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-        )}
-      >
-        <div
-          className={clsx(
-            "overflow-hidden transition-opacity duration-300 ease-spring",
-            isExpanded ? "opacity-100" : "opacity-0"
-          )}
-        >
+      <Collapsible isExpanded={isExpanded}>
           <div className="border-t border-strix-border-subtle">
             <div className={clsx("bg-strix-bg", px, py)}>
               <div className="text-[10px] uppercase text-strix-text-muted tracking-wider mb-1">Input</div>
@@ -81,8 +66,7 @@ export function ToolBlockRenderer({ tool, toolKey, isExpanded, onToggle, variant
               </div>
             )}
           </div>
-        </div>
-      </div>
+      </Collapsible>
     </div>
   );
 }

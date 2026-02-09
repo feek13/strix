@@ -1,4 +1,5 @@
 import express from "express";
+import type { Request, Response } from "express";
 import cors from "cors";
 import { join } from "path";
 import { homedir } from "os";
@@ -6,7 +7,7 @@ import { readFileSync, existsSync } from "fs";
 import { spawn } from "child_process";
 import { store } from "../store/sqlite-store.js";
 import { startScan, stopScan, resumeScan, getActiveScans, getActiveScanById } from "./scan-manager.js";
-import { ensureDockerReady, ensureDockerReadyWithSteps } from "./docker-utils.js";
+import { ensureDockerReadyWithSteps } from "./docker-utils.js";
 import type { PreflightStep } from "./docker-utils.js";
 import { eventReceiver } from "../bridge/event-receiver.js";
 import { generatePDFReport } from "../reports/pdf-generator.js";
@@ -15,6 +16,9 @@ import { generateChatDOCX } from "../reports/chat-docx-generator.js";
 import { randomUUID } from "crypto";
 import type { ChildProcess } from "child_process";
 import type { Scan } from "@strix-webui/shared";
+import { extractErrorMessage } from "../utils/errors.js";
+import { setupSSE } from "../utils/sse-helpers.js";
+import { requireDocker } from "../utils/docker-preflight.js";
 
 // In-memory map of active SSE streams for Ask AI sessions
 // Key: web session ID, Value: active SSE response
@@ -84,6 +88,16 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   });
 }
 
+/** Extract user ID from header or send 401. Returns null if header is missing. */
+function getUserId(req: Request, res: Response): string | null {
+  const userId = req.headers["x-strix-user-id"] as string;
+  if (!userId) {
+    res.status(401).json({ error: "Missing X-Strix-User-Id header" });
+    return null;
+  }
+  return userId;
+}
+
 export function createRestServer(port: number = 3000): express.Application {
   const app = express();
 
@@ -107,15 +121,7 @@ export function createRestServer(port: number = 3000): express.Application {
       }
 
       // Pre-flight: ensure Docker is running (auto-starts if needed)
-      try {
-        await ensureDockerReady(90_000, (msg) => {
-          console.log(`[Docker] ${msg}`);
-        });
-      } catch (dockerErr) {
-        const msg = dockerErr instanceof Error ? dockerErr.message : "Docker is not available";
-        res.status(503).json({ error: msg, code: "DOCKER_NOT_READY" });
-        return;
-      }
+      if (!(await requireDocker(res))) return;
 
       // Auto-detect target type
       let type: Scan["targetType"] = targetType || "url";
@@ -128,8 +134,7 @@ export function createRestServer(port: number = 3000): express.Application {
       const scan = startScan(target, type, mode || "auto", timeoutMinutes);
       res.json(scan);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      res.status(500).json({ error: message });
+      res.status(500).json({ error: extractErrorMessage(error) });
     }
   });
 
@@ -142,45 +147,16 @@ export function createRestServer(port: number = 3000): express.Application {
       return;
     }
 
-    // Set up SSE headers (same pattern as /api/ask)
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders();
-
-    res.write(": connected\n\n");
-
-    let finished = false;
-
-    // Heartbeat every 5s to keep connection alive during long builds
-    const heartbeat = setInterval(() => {
-      if (!finished) res.write(": heartbeat\n\n");
-    }, 5000);
-
-    const cleanup = () => {
-      finished = true;
-      clearInterval(heartbeat);
-    };
-
-    res.on("close", () => {
-      cleanup();
-    });
-
-    const writeEvent = (data: Record<string, unknown>) => {
-      if (!finished) {
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
-      }
-    };
+    const sse = setupSSE(res);
 
     try {
       // Run preflight checks with structured step reporting
       await ensureDockerReadyWithSteps((step: PreflightStep) => {
-        writeEvent({ type: "step", ...step });
+        sse.send({ type: "step", ...step });
       }, 90_000);
 
       // Step 3: Launch the scan
-      writeEvent({
+      sse.send({
         type: "step",
         step: 3, totalSteps: 3, id: "launch",
         label: "Launching Scan", status: "running",
@@ -197,21 +173,21 @@ export function createRestServer(port: number = 3000): express.Application {
 
       const scan = startScan(target.trim(), type, mode || "auto", timeoutMinutes);
 
-      writeEvent({
+      sse.send({
         type: "step",
         step: 3, totalSteps: 3, id: "launch",
         label: "Launching Scan", status: "done",
       });
 
-      writeEvent({ type: "complete", scan });
-      res.write("data: [DONE]\n\n");
+      sse.send({ type: "complete", scan });
+      sse.sendRaw("data: [DONE]\n\n");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
+      const message = extractErrorMessage(error);
       console.error(`[Scan Start SSE] Error: ${message}`);
-      writeEvent({ type: "error", error: message });
-      res.write("data: [DONE]\n\n");
+      sse.send({ type: "error", error: message });
+      sse.sendRaw("data: [DONE]\n\n");
     } finally {
-      cleanup();
+      sse.end();
       res.end();
     }
   });
@@ -252,21 +228,13 @@ export function createRestServer(port: number = 3000): express.Application {
   app.post("/api/scans/:id/resume", async (req, res) => {
     try {
       // Pre-flight: ensure Docker is running
-      try {
-        await ensureDockerReady(90_000, (msg) => {
-          console.log(`[Docker] ${msg}`);
-        });
-      } catch (dockerErr) {
-        const msg = dockerErr instanceof Error ? dockerErr.message : "Docker is not available";
-        res.status(503).json({ error: msg, code: "DOCKER_NOT_READY" });
-        return;
-      }
+      if (!(await requireDocker(res))) return;
 
       const { timeoutMinutes } = req.body || {};
       const scan = resumeScan(req.params.id, timeoutMinutes);
       res.json(scan);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
+      const message = extractErrorMessage(error);
       const status = message.includes("not found") ? 404 : message.includes("already running") ? 409 : 400;
       res.status(status).json({ error: message });
     }
@@ -491,29 +459,23 @@ export function createRestServer(port: number = 3000): express.Application {
       prompt += isExecute ? `Task: ${question}` : `Question: ${question}`;
     }
 
-    // Set up SSE — disable compression/buffering to keep connection alive
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders();
-
-    // Send initial keepalive so client knows connection is established
-    res.write(": connected\n\n");
+    // Set up SSE connection with headers and heartbeat
+    const sse = setupSSE(res);
 
     // Execute mode (new session): Docker preflight before spawning Claude
     // so that strix-sandbox MCP server can connect to the container.
     if (isExecute && !isResume) {
       try {
         await ensureDockerReadyWithSteps((step) => {
-          res.write(`data: ${JSON.stringify({ type: "preflight_step", ...step })}\n\n`);
+          sse.send({ type: "preflight_step", ...step });
         }, 90_000);
-        res.write(`data: ${JSON.stringify({ type: "preflight_done" })}\n\n`);
+        sse.send({ type: "preflight_done" });
       } catch (dockerErr) {
-        const msg = dockerErr instanceof Error ? dockerErr.message : "Docker is not available";
+        const msg = extractErrorMessage(dockerErr, "Docker is not available");
         console.error(`[Ask AI] Docker preflight failed: ${msg}`);
-        res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
-        res.write("data: [DONE]\n\n");
+        sse.send({ error: msg });
+        sse.sendRaw("data: [DONE]\n\n");
+        sse.end();
         res.end();
         return;
       }
@@ -557,7 +519,6 @@ export function createRestServer(port: number = 3000): express.Application {
       activeAskStreams.set(webSessionId, res);
     }
 
-    let finished = false;
     const child = spawn("claude", args, {
       detached: true,
       env: {
@@ -586,17 +547,12 @@ export function createRestServer(port: number = 3000): express.Application {
     child.stdin.write(prompt);
     child.stdin.end();
 
-    // Send heartbeat every 5s to keep connection alive
-    const heartbeat = setInterval(() => {
-      if (!finished) res.write(": heartbeat\n\n");
-    }, 5000);
-
     // No timeout for execute mode — task runs until done.
     // Ask mode: 3 min timeout (single-turn Q&A).
     const timeoutMs = isExecute ? 0 : 3 * 60 * 1000;
     let killedByTimeout = false;
     const timeout = timeoutMs > 0 ? setTimeout(() => {
-      if (!finished) {
+      if (!sse.finished) {
         killedByTimeout = true;
         console.log(`[Ask AI] Ask timeout (${timeoutMs / 60000} min), killing process`);
         killProcessGroup(child);
@@ -618,7 +574,7 @@ export function createRestServer(port: number = 3000): express.Application {
           const event = JSON.parse(line);
 
           if (event.type === "system" && event.subtype === "init") {
-            res.write(`data: ${JSON.stringify({ type: "init" })}\n\n`);
+            sse.send({ type: "init" });
           } else if (event.type === "assistant") {
             const content = event.message?.content || [];
             for (const block of content) {
@@ -627,14 +583,14 @@ export function createRestServer(port: number = 3000): express.Application {
                 // Accumulate text for graceful shutdown recovery
                 const tracked = activeAskProcesses.get(processId);
                 if (tracked) tracked.accumulatedText += block.text;
-                res.write(`data: ${JSON.stringify({ type: "text", text: block.text })}\n\n`);
+                sse.send({ type: "text", text: block.text });
               } else if (block.type === "tool_use") {
-                res.write(`data: ${JSON.stringify({
+                sse.send({
                   type: "tool_use",
                   name: block.name,
                   toolUseId: block.id,
                   input: block.input,
-                })}\n\n`);
+                });
               }
             }
           } else if (event.type === "user") {
@@ -647,12 +603,12 @@ export function createRestServer(port: number = 3000): express.Application {
                 if (resultContent.length > 3000) {
                   resultContent = resultContent.slice(0, 3000) + "\n...(truncated)";
                 }
-                res.write(`data: ${JSON.stringify({
+                sse.send({
                   type: "tool_result",
                   toolUseId: block.tool_use_id,
                   content: resultContent,
                   isError: block.is_error || false,
-                })}\n\n`);
+                });
               }
             }
           } else if (event.type === "result") {
@@ -660,18 +616,18 @@ export function createRestServer(port: number = 3000): express.Application {
             if (event.is_error || event.subtype === "error" || event.subtype === "error_during_execution") {
               const errorMsg = (event.errors && event.errors[0]) || event.result || event.error || "Unknown error";
               console.error(`[Ask AI] Result error: ${errorMsg}`);
-              res.write(`data: ${JSON.stringify({ error: errorMsg })}\n\n`);
+              sse.send({ error: errorMsg });
             } else if (!textSent && event.result) {
               // Fallback: if no text events were sent but result has text, send it
               textSent = true;
               const tracked = activeAskProcesses.get(processId);
               if (tracked) tracked.accumulatedText += event.result;
-              res.write(`data: ${JSON.stringify({ type: "text", text: event.result })}\n\n`);
+              sse.send({ type: "text", text: event.result });
             }
-            res.write(`data: ${JSON.stringify({
+            sse.send({
               type: "result",
               result: event.result || "",
-            })}\n\n`);
+            });
           }
         } catch {
           // Incomplete or invalid JSON line, skip
@@ -685,8 +641,12 @@ export function createRestServer(port: number = 3000): express.Application {
       stderrBuffer += msg + "\n";
     });
 
+    // Track whether the process has exited/errored so the close handler
+    // knows whether it still needs to kill the child process.
+    let processEnded = false;
+
     const cleanup = () => {
-      clearInterval(heartbeat);
+      sse.end();
       if (timeout) clearTimeout(timeout);
       if (webSessionId) activeAskStreams.delete(webSessionId);
       activeAskProcesses.delete(processId);
@@ -694,16 +654,17 @@ export function createRestServer(port: number = 3000): express.Application {
 
     child.on("exit", (code) => {
       console.log(`[Ask AI] Process exited with code ${code}${killedByTimeout ? " (timeout)" : ""}`);
+      processEnded = true;
 
       // Save claudeSessionId + mode to DB after first message or mode change
       if (!isResume && webSessionId && session) {
         store.updateChatSessionClaudeId(webSessionId, session.userId, claudeSessionId, currentMode);
       }
 
+      const wasFinished = sse.finished;
       cleanup();
 
-      if (!finished) {
-        finished = true;
+      if (!wasFinished) {
         // Surface timeout to frontend so it can show "send a message to continue"
         if (killedByTimeout) {
           res.write(`data: ${JSON.stringify({ type: "timeout", timeoutMinutes: timeoutMs / 60000 })}\n\n`);
@@ -719,9 +680,10 @@ export function createRestServer(port: number = 3000): express.Application {
 
     child.on("error", (err) => {
       console.error(`[Ask AI] Process error: ${err.message}`);
+      processEnded = true;
+      const wasFinished = sse.finished;
       cleanup();
-      if (!finished) {
-        finished = true;
+      if (!wasFinished) {
         res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
         res.write("data: [DONE]\n\n");
         res.end();
@@ -730,7 +692,7 @@ export function createRestServer(port: number = 3000): express.Application {
 
     // Kill process only if client disconnects before we finish
     res.on("close", () => {
-      if (!finished) {
+      if (!processEnded) {
         console.log("[Ask AI] Client disconnected, killing process");
         cleanup();
         killProcessGroup(child);
@@ -742,16 +704,16 @@ export function createRestServer(port: number = 3000): express.Application {
 
   // List user's chat sessions
   app.get("/api/chat/sessions", (req, res) => {
-    const userId = req.headers["x-strix-user-id"] as string;
-    if (!userId) { res.status(401).json({ error: "Missing X-Strix-User-Id header" }); return; }
+    const userId = getUserId(req, res);
+    if (!userId) return;
     const sessions = store.getChatSessionsByUser(userId);
     res.json(sessions);
   });
 
   // Create new chat session
   app.post("/api/chat/sessions", (req, res) => {
-    const userId = req.headers["x-strix-user-id"] as string;
-    if (!userId) { res.status(401).json({ error: "Missing X-Strix-User-Id header" }); return; }
+    const userId = getUserId(req, res);
+    if (!userId) return;
     const { scanId, title, cwd } = req.body;
     const now = new Date().toISOString();
     const session = {
@@ -771,8 +733,8 @@ export function createRestServer(port: number = 3000): express.Application {
 
   // Delete chat session
   app.delete("/api/chat/sessions/:id", (req, res) => {
-    const userId = req.headers["x-strix-user-id"] as string;
-    if (!userId) { res.status(401).json({ error: "Missing X-Strix-User-Id header" }); return; }
+    const userId = getUserId(req, res);
+    if (!userId) return;
     const session = store.getChatSession(req.params.id, userId);
     if (!session) { res.status(404).json({ error: "Session not found" }); return; }
     store.deleteChatSession(req.params.id, userId);
@@ -781,8 +743,8 @@ export function createRestServer(port: number = 3000): express.Application {
 
   // Update chat session title
   app.patch("/api/chat/sessions/:id", (req, res) => {
-    const userId = req.headers["x-strix-user-id"] as string;
-    if (!userId) { res.status(401).json({ error: "Missing X-Strix-User-Id header" }); return; }
+    const userId = getUserId(req, res);
+    if (!userId) return;
     const session = store.getChatSession(req.params.id, userId);
     if (!session) { res.status(404).json({ error: "Session not found" }); return; }
     const { title } = req.body;
@@ -792,8 +754,8 @@ export function createRestServer(port: number = 3000): express.Application {
 
   // Get messages for a session
   app.get("/api/chat/sessions/:id/messages", (req, res) => {
-    const userId = req.headers["x-strix-user-id"] as string;
-    if (!userId) { res.status(401).json({ error: "Missing X-Strix-User-Id header" }); return; }
+    const userId = getUserId(req, res);
+    if (!userId) return;
     const session = store.getChatSession(req.params.id, userId);
     if (!session) { res.status(404).json({ error: "Session not found" }); return; }
     const messages = store.getChatMessages(req.params.id, userId);
@@ -802,8 +764,8 @@ export function createRestServer(port: number = 3000): express.Application {
 
   // Save a message to a session
   app.post("/api/chat/sessions/:id/messages", (req, res) => {
-    const userId = req.headers["x-strix-user-id"] as string;
-    if (!userId) { res.status(401).json({ error: "Missing X-Strix-User-Id header" }); return; }
+    const userId = getUserId(req, res);
+    if (!userId) return;
     const session = store.getChatSession(req.params.id, userId);
     if (!session) { res.status(404).json({ error: "Session not found" }); return; }
     const { role, content, isExecute, blocks } = req.body;
@@ -824,8 +786,8 @@ export function createRestServer(port: number = 3000): express.Application {
 
   // Export chat session as PDF
   app.get("/api/chat/sessions/:id/export/pdf", async (req, res) => {
-    const userId = req.headers["x-strix-user-id"] as string;
-    if (!userId) { res.status(401).json({ error: "Missing X-Strix-User-Id header" }); return; }
+    const userId = getUserId(req, res);
+    if (!userId) return;
     const session = store.getChatSession(req.params.id, userId);
     if (!session) { res.status(404).json({ error: "Session not found" }); return; }
     const messages = store.getChatMessages(req.params.id, userId);
@@ -843,8 +805,8 @@ export function createRestServer(port: number = 3000): express.Application {
 
   // Export chat session as DOCX
   app.get("/api/chat/sessions/:id/export/docx", async (req, res) => {
-    const userId = req.headers["x-strix-user-id"] as string;
-    if (!userId) { res.status(401).json({ error: "Missing X-Strix-User-Id header" }); return; }
+    const userId = getUserId(req, res);
+    if (!userId) return;
     const session = store.getChatSession(req.params.id, userId);
     if (!session) { res.status(404).json({ error: "Session not found" }); return; }
     const messages = store.getChatMessages(req.params.id, userId);
