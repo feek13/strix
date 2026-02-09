@@ -5,7 +5,7 @@ import { homedir } from "os";
 import { readFileSync, existsSync } from "fs";
 import { spawn } from "child_process";
 import { store } from "../store/sqlite-store.js";
-import { startScan, stopScan, getActiveScan } from "./scan-manager.js";
+import { startScan, stopScan, resumeScan, getActiveScans, getActiveScanById } from "./scan-manager.js";
 import { generatePDFReport } from "../reports/pdf-generator.js";
 import { generateChatPDF } from "../reports/chat-pdf-generator.js";
 import { generateChatDOCX } from "../reports/chat-docx-generator.js";
@@ -24,7 +24,8 @@ export function createRestServer(port: number = 3000): express.Application {
 
   // Health check
   app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", activeScan: getActiveScan()?.scan.id || null });
+    const activeIds = getActiveScans().map(s => s.scan.id);
+    res.json({ status: "ok", activeScans: activeIds });
   });
 
   // Start new scan
@@ -49,7 +50,7 @@ export function createRestServer(port: number = 3000): express.Application {
       res.json(scan);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      res.status(409).json({ error: message });
+      res.status(500).json({ error: message });
     }
   });
 
@@ -82,6 +83,19 @@ export function createRestServer(port: number = 3000): express.Application {
       res.json({ message: "Scan stopped" });
     } else {
       res.status(404).json({ error: "Active scan not found" });
+    }
+  });
+
+  // Resume a completed/stopped scan
+  app.post("/api/scans/:id/resume", (req, res) => {
+    try {
+      const { timeoutMinutes } = req.body || {};
+      const scan = resumeScan(req.params.id, timeoutMinutes);
+      res.json(scan);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      const status = message.includes("not found") ? 404 : message.includes("already running") ? 409 : 400;
+      res.status(status).json({ error: message });
     }
   });
 
@@ -300,7 +314,7 @@ export function createRestServer(port: number = 3000): express.Application {
 
     if (isExecute) {
       args.push("--dangerously-skip-permissions");
-      args.push("--max-turns", "50");
+      // No turn limit — security tests run until the task is done.
     } else {
       // Ask mode: lightweight Q&A, no tool execution, fast model
       args.push("--max-turns", "1");
@@ -331,14 +345,17 @@ export function createRestServer(port: number = 3000): express.Application {
       if (!finished) res.write(": heartbeat\n\n");
     }, 5000);
 
-    // Timeout: 10 min for execute mode, 3 min for ask mode
-    const timeoutMs = isExecute ? 10 * 60 * 1000 : 3 * 60 * 1000;
-    const timeout = setTimeout(() => {
+    // No timeout for execute mode — task runs until done.
+    // Ask mode: 3 min timeout (single-turn Q&A).
+    const timeoutMs = isExecute ? 0 : 3 * 60 * 1000;
+    let killedByTimeout = false;
+    const timeout = timeoutMs > 0 ? setTimeout(() => {
       if (!finished) {
-        console.log(`[Ask AI] ${isExecute ? "Execute" : "Ask"} timeout (${timeoutMs / 60000} min), killing process`);
+        killedByTimeout = true;
+        console.log(`[Ask AI] Ask timeout (${timeoutMs / 60000} min), killing process`);
         child.kill("SIGTERM");
       }
-    }, timeoutMs);
+    }, timeoutMs) : null;
 
     // Parse stream-json events and forward as typed SSE messages (both modes)
     let jsonBuffer = "";
@@ -400,7 +417,10 @@ export function createRestServer(port: number = 3000): express.Application {
               textSent = true;
               res.write(`data: ${JSON.stringify({ type: "text", text: event.result })}\n\n`);
             }
-            res.write(`data: ${JSON.stringify({ type: "result", result: event.result || "" })}\n\n`);
+            res.write(`data: ${JSON.stringify({
+              type: "result",
+              result: event.result || "",
+            })}\n\n`);
           }
         } catch {
           // Incomplete or invalid JSON line, skip
@@ -416,12 +436,12 @@ export function createRestServer(port: number = 3000): express.Application {
 
     const cleanup = () => {
       clearInterval(heartbeat);
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       if (webSessionId) activeAskStreams.delete(webSessionId);
     };
 
     child.on("exit", (code) => {
-      console.log(`[Ask AI] Process exited with code ${code}`);
+      console.log(`[Ask AI] Process exited with code ${code}${killedByTimeout ? " (timeout)" : ""}`);
       cleanup();
 
       // Save claudeSessionId + mode to DB after first message or mode change
@@ -431,6 +451,10 @@ export function createRestServer(port: number = 3000): express.Application {
 
       if (!finished) {
         finished = true;
+        // Surface timeout to frontend so it can show "send a message to continue"
+        if (killedByTimeout) {
+          res.write(`data: ${JSON.stringify({ type: "timeout", timeoutMinutes: timeoutMs / 60000 })}\n\n`);
+        }
         // Surface error to frontend if process failed without sending any text
         if (code !== 0 && !textSent && stderrBuffer.trim()) {
           res.write(`data: ${JSON.stringify({ error: stderrBuffer.trim() })}\n\n`);

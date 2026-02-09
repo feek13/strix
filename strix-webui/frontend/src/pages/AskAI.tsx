@@ -98,9 +98,14 @@ export default function AskAI() {
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
-  // Auto scroll
+  // Auto scroll (debounced to once per frame)
+  const scrollRaf = useRef(0);
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (scrollRaf.current) cancelAnimationFrame(scrollRaf.current);
+    scrollRaf.current = requestAnimationFrame(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      scrollRaf.current = 0;
+    });
   }, [messages, streamingText, streamBlocks]);
 
   // Auto-resize textarea
@@ -247,6 +252,15 @@ export default function AskAI() {
       let buffer = "";
       let fullText = "";
       const blocks: StreamBlock[] = [];
+      let pendingFlush = 0;
+      const flushBlocks = () => {
+        if (!pendingFlush) {
+          pendingFlush = requestAnimationFrame(() => {
+            setStreamBlocks([...blocks]);
+            pendingFlush = 0;
+          });
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -285,7 +299,7 @@ export default function AskAI() {
                     } else {
                       blocks.push({ type: "text", text });
                     }
-                    setStreamBlocks([...blocks]);
+                    flushBlocks();
                   } else {
                     // Typewriter animation for ask mode
                     typewriter.start(fullText);
@@ -300,7 +314,7 @@ export default function AskAI() {
                     status: "running",
                   };
                   blocks.push({ type: "tool", tool: toolBlock });
-                  setStreamBlocks([...blocks]);
+                  flushBlocks();
                   break;
                 }
                 case "tool_result": {
@@ -312,7 +326,7 @@ export default function AskAI() {
                       break;
                     }
                   }
-                  setStreamBlocks([...blocks]);
+                  flushBlocks();
                   break;
                 }
                 case "result":
@@ -323,7 +337,7 @@ export default function AskAI() {
                       typewriter.start(fullText);
                     } else {
                       blocks.push({ type: "text", text: fullText });
-                      setStreamBlocks([...blocks]);
+                      flushBlocks();
                     }
                   }
                   setStreamPhase("done");
@@ -335,6 +349,9 @@ export default function AskAI() {
           }
         }
       }
+
+      // Cancel pending rAF and ensure final state is rendered
+      if (pendingFlush) { cancelAnimationFrame(pendingFlush); pendingFlush = 0; }
 
       // Stop typewriter and show full text
       typewriter.stop();

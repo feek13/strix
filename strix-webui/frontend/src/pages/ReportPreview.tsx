@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, memo, type ComponentPropsWithoutRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentPropsWithoutRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import ReactMarkdown from "react-markdown";
@@ -264,9 +264,14 @@ export default function ReportPreview() {
     return () => document.removeEventListener("mousedown", handleDown);
   }, []);
 
-  // Auto scroll chat
+  // Auto scroll chat (debounced to once per frame)
+  const scrollRaf = useRef(0);
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (scrollRaf.current) cancelAnimationFrame(scrollRaf.current);
+    scrollRaf.current = requestAnimationFrame(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      scrollRaf.current = 0;
+    });
   }, [messages, streamingText, streamBlocks]);
 
   const openChatWithSelection = async () => {
@@ -355,6 +360,15 @@ export default function ReportPreview() {
       let buffer = "";
       let fullText = "";
       const blocks: StreamBlock[] = [];
+      let pendingFlush = 0;
+      const flushBlocks = () => {
+        if (!pendingFlush) {
+          pendingFlush = requestAnimationFrame(() => {
+            setStreamBlocks([...blocks]);
+            pendingFlush = 0;
+          });
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -394,7 +408,7 @@ export default function ReportPreview() {
                     } else {
                       blocks.push({ type: "text", text });
                     }
-                    setStreamBlocks([...blocks]);
+                    flushBlocks();
                   } else {
                     typewriter.start(fullText);
                   }
@@ -409,7 +423,7 @@ export default function ReportPreview() {
                     status: "running",
                   };
                   blocks.push({ type: "tool", tool: toolBlock });
-                  setStreamBlocks([...blocks]);
+                  flushBlocks();
                   break;
                 }
 
@@ -422,7 +436,7 @@ export default function ReportPreview() {
                       break;
                     }
                   }
-                  setStreamBlocks([...blocks]);
+                  flushBlocks();
                   break;
                 }
 
@@ -434,7 +448,7 @@ export default function ReportPreview() {
                       typewriter.start(fullText);
                     } else {
                       blocks.push({ type: "text", text: fullText });
-                      setStreamBlocks([...blocks]);
+                      flushBlocks();
                     }
                   }
                   setStreamPhase("done");
@@ -446,6 +460,9 @@ export default function ReportPreview() {
           }
         }
       }
+
+      // Cancel pending rAF and ensure final state is rendered
+      if (pendingFlush) { cancelAnimationFrame(pendingFlush); pendingFlush = 0; }
 
       // Stop typewriter and show full text
       typewriter.stop();
@@ -492,6 +509,30 @@ export default function ReportPreview() {
     }
   };
 
+  const { sorted, sevCounts, durationMs, risk } = useMemo(() => {
+    if (!data) return { sorted: [] as Vulnerability[], sevCounts: { critical: 0, high: 0, medium: 0, low: 0, info: 0 }, durationMs: null as number | null, risk: "Low" };
+
+    const { scan, vulnerabilities } = data;
+    const sorted = [...vulnerabilities].sort((a, b) => {
+      const scores: Record<string, number> = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
+      return (scores[b.severity] || 0) - (scores[a.severity] || 0);
+    });
+
+    const sevCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+    for (const v of sorted) sevCounts[v.severity as keyof typeof sevCounts]++;
+
+    const durationMs = scan.startedAt && scan.completedAt
+      ? new Date(scan.completedAt).getTime() - new Date(scan.startedAt).getTime()
+      : null;
+
+    let risk = "Low";
+    if (sevCounts.critical > 0) risk = "Critical";
+    else if (sevCounts.high > 0) risk = "High";
+    else if (sevCounts.medium > 0) risk = "Medium";
+
+    return { sorted, sevCounts, durationMs, risk };
+  }, [data]);
+
   const downloadPDF = async () => {
     if (!id) return;
     setGenerating(true);
@@ -529,22 +570,6 @@ export default function ReportPreview() {
   }
 
   const { scan, agents, tools, vulnerabilities } = data;
-  const sorted = [...vulnerabilities].sort((a, b) => {
-    const scores: Record<string, number> = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
-    return (scores[b.severity] || 0) - (scores[a.severity] || 0);
-  });
-
-  const sevCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-  for (const v of sorted) sevCounts[v.severity as keyof typeof sevCounts]++;
-
-  const durationMs = scan.startedAt && scan.completedAt
-    ? new Date(scan.completedAt).getTime() - new Date(scan.startedAt).getTime()
-    : null;
-
-  let risk = "Low";
-  if (sevCounts.critical > 0) risk = "Critical";
-  else if (sevCounts.high > 0) risk = "High";
-  else if (sevCounts.medium > 0) risk = "Medium";
 
   return (
     <div className="h-full flex flex-col animate-fade-in">

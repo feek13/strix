@@ -4,7 +4,6 @@ import type { Scan, InternalEvent } from "@strix-webui/shared";
 import { v4 as uuidv4 } from "uuid";
 import { writeEvent } from "../hooks/utils.js";
 
-const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_TURNS = 200;
 
 interface ActiveScan {
@@ -13,10 +12,17 @@ interface ActiveScan {
   timeoutTimer: ReturnType<typeof setTimeout>;
 }
 
-let activeScan: ActiveScan | null = null;
+/** All currently running scans, keyed by scan ID */
+const activeScans = new Map<string, ActiveScan>();
+/** Track scan IDs that were manually stopped so exit handler doesn't overwrite status */
+const stoppedScanIds = new Set<string>();
 
-export function getActiveScan(): ActiveScan | null {
-  return activeScan;
+export function getActiveScans(): ActiveScan[] {
+  return Array.from(activeScans.values());
+}
+
+export function getActiveScanById(id: string): ActiveScan | undefined {
+  return activeScans.get(id);
 }
 
 export function startScan(
@@ -25,11 +31,8 @@ export function startScan(
   mode: string,
   timeoutMinutes?: number
 ): Scan {
-  if (activeScan) {
-    throw new Error("A scan is already running. Stop it first.");
-  }
-
   const scanId = uuidv4();
+  const claudeSessionId = uuidv4();
   const now = new Date().toISOString();
 
   const scan: Scan = {
@@ -42,6 +45,7 @@ export function startScan(
     startedAt: now,
     completedAt: null,
     findings: 0,
+    claudeSessionId,
   };
 
   store.saveScan(scan);
@@ -62,11 +66,11 @@ export function startScan(
 
   const timeoutMs = (timeoutMinutes ?? 30) * 60 * 1000;
 
-  // Spawn Claude Code CLI (uses global MCP servers from ~/.claude/settings.json)
+  // Spawn Claude Code CLI with a persistent session
   const child = spawn("claude", [
     "--print",
     "--dangerously-skip-permissions",
-    "--no-session-persistence",
+    "--session-id", claudeSessionId,
     "--max-turns", String(MAX_TURNS),
     prompt,
   ], {
@@ -79,19 +83,125 @@ export function startScan(
 
   // Scan timeout — kill the process if it runs too long
   const timeoutTimer = setTimeout(() => {
-    if (activeScan?.scan.id === scanId) {
+    const entry = activeScans.get(scanId);
+    if (entry) {
       console.log(`[Scan ${scanId.slice(0, 8)}] Timeout after ${timeoutMs / 60000} minutes, killing process`);
-      activeScan.process.kill("SIGTERM");
+      entry.process.kill("SIGTERM");
       setTimeout(() => {
-        if (activeScan?.scan.id === scanId) {
-          activeScan.process.kill("SIGKILL");
+        if (activeScans.has(scanId)) {
+          activeScans.get(scanId)!.process.kill("SIGKILL");
         }
       }, 10000);
     }
   }, timeoutMs);
 
-  activeScan = { scan, process: child, timeoutTimer };
+  activeScans.set(scanId, { scan, process: child, timeoutTimer });
 
+  setupProcessHandlers(child, scanId);
+
+  return scan;
+}
+
+export function resumeScan(scanId: string, timeoutMinutes?: number): Scan {
+  const scan = store.getScan(scanId);
+  if (!scan) {
+    throw new Error("Scan not found");
+  }
+  if (!scan.claudeSessionId) {
+    throw new Error("Scan has no Claude session ID — cannot resume");
+  }
+  if (activeScans.has(scanId)) {
+    throw new Error("Scan is already running");
+  }
+
+  // Update status back to running
+  const now = new Date().toISOString();
+  store.updateScanStatus(scanId, "running", undefined);
+  scan.status = "running";
+  scan.completedAt = null;
+
+  const startEvent: InternalEvent = {
+    type: "SCAN_STARTED",
+    timestamp: now,
+    scanId,
+    target: scan.target,
+    targetType: scan.targetType,
+    mode: scan.mode,
+  };
+  writeEvent(startEvent);
+
+  const timeoutMs = (timeoutMinutes ?? 30) * 60 * 1000;
+
+  // Spawn Claude Code CLI with --resume to continue the existing session
+  const child = spawn("claude", [
+    "--print",
+    "--dangerously-skip-permissions",
+    "--resume", scan.claudeSessionId,
+    "--max-turns", String(MAX_TURNS),
+  ], {
+    env: {
+      ...process.env,
+      STRIX_SCAN_ID: scanId,
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  // Send continuation prompt via stdin
+  child.stdin!.write("Continue the security scan from where you left off. Check your previous findings and continue testing any areas that haven't been covered yet. When done, call finish_scan with a comprehensive summary.");
+  child.stdin!.end();
+
+  const timeoutTimer = setTimeout(() => {
+    const entry = activeScans.get(scanId);
+    if (entry) {
+      console.log(`[Scan ${scanId.slice(0, 8)}] Timeout after ${timeoutMs / 60000} minutes, killing process`);
+      entry.process.kill("SIGTERM");
+      setTimeout(() => {
+        if (activeScans.has(scanId)) {
+          activeScans.get(scanId)!.process.kill("SIGKILL");
+        }
+      }, 10000);
+    }
+  }, timeoutMs);
+
+  activeScans.set(scanId, { scan, process: child, timeoutTimer });
+
+  setupProcessHandlers(child, scanId);
+
+  return scan;
+}
+
+export function stopScan(scanId: string): boolean {
+  const entry = activeScans.get(scanId);
+  if (!entry) {
+    return false;
+  }
+
+  // Mark as stopped before killing so exit handler doesn't overwrite
+  stoppedScanIds.add(scanId);
+  clearTimeout(entry.timeoutTimer);
+  entry.process.kill("SIGTERM");
+  setTimeout(() => {
+    const current = activeScans.get(scanId);
+    if (current) {
+      current.process.kill("SIGKILL");
+    }
+  }, 5000);
+
+  store.updateScanStatus(scanId, "stopped", new Date().toISOString());
+
+  const stopEvent: InternalEvent = {
+    type: "SCAN_COMPLETED",
+    timestamp: new Date().toISOString(),
+    scanId,
+    status: "stopped",
+  };
+  writeEvent(stopEvent);
+
+  activeScans.delete(scanId);
+  return true;
+}
+
+function setupProcessHandlers(child: ChildProcess, scanId: string): void {
   child.stdout?.on("data", (data: Buffer) => {
     console.log(`[Scan ${scanId.slice(0, 8)}] ${data.toString().trim()}`);
   });
@@ -102,7 +212,22 @@ export function startScan(
 
   child.on("exit", (code) => {
     const completedAt = new Date().toISOString();
-    const status = code === 0 ? "completed" : "failed";
+
+    // Don't overwrite status if scan was manually stopped
+    if (stoppedScanIds.has(scanId)) {
+      stoppedScanIds.delete(scanId);
+      const entry = activeScans.get(scanId);
+      if (entry) {
+        clearTimeout(entry.timeoutTimer);
+        activeScans.delete(scanId);
+      }
+      console.log(`[Scan ${scanId.slice(0, 8)}] Process exited with code ${code} (already stopped)`);
+      return;
+    }
+
+    // Treat all natural exits as "completed" — Claude CLI exits non-zero
+    // for normal reasons (max turns, context overflow, etc.)
+    const status = "completed";
     store.updateScanStatus(scanId, status, completedAt);
 
     const completeEvent: InternalEvent = {
@@ -113,41 +238,23 @@ export function startScan(
     };
     writeEvent(completeEvent);
 
-    if (activeScan?.scan.id === scanId) {
-      clearTimeout(activeScan.timeoutTimer);
-      activeScan = null;
+    const entry = activeScans.get(scanId);
+    if (entry) {
+      clearTimeout(entry.timeoutTimer);
+      activeScans.delete(scanId);
     }
-    console.log(`[Scan ${scanId.slice(0, 8)}] Process exited with code ${code}`);
+    console.log(`[Scan ${scanId.slice(0, 8)}] Process exited with code ${code} → ${status}`);
   });
 
   child.on("error", (err) => {
     console.error(`[Scan ${scanId.slice(0, 8)}] Process error:`, err);
     store.updateScanStatus(scanId, "failed", new Date().toISOString());
-    if (activeScan?.scan.id === scanId) {
-      clearTimeout(activeScan.timeoutTimer);
-      activeScan = null;
+    const entry = activeScans.get(scanId);
+    if (entry) {
+      clearTimeout(entry.timeoutTimer);
+      activeScans.delete(scanId);
     }
   });
-
-  return scan;
-}
-
-export function stopScan(scanId: string): boolean {
-  if (!activeScan || activeScan.scan.id !== scanId) {
-    return false;
-  }
-
-  clearTimeout(activeScan.timeoutTimer);
-  activeScan.process.kill("SIGTERM");
-  setTimeout(() => {
-    if (activeScan?.scan.id === scanId) {
-      activeScan.process.kill("SIGKILL");
-    }
-  }, 5000);
-
-  store.updateScanStatus(scanId, "stopped", new Date().toISOString());
-  activeScan = null;
-  return true;
 }
 
 function buildPrompt(target: string, targetType: string, mode: string): string {

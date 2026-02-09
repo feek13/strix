@@ -1,14 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useScanStore } from "../store/scanStore";
 import ChatInterface from "../components/Chat/ChatInterface";
 import NetworkTopology from "../components/Visualization/NetworkTopology";
 import Timeline from "../components/Visualization/Timeline";
 import TerminalLog from "../components/Logs/TerminalLog";
+import NodeDetailPanel from "../components/NodeDetailPanel";
 import { useVulnerabilityStore } from "../store/vulnerabilityStore";
 import { useWebSocket } from "../hooks/useWebSocket";
 import clsx from "clsx";
 import { Network, Clock, ShieldAlert } from "lucide-react";
+import type { SelectedNode } from "../types/nodeSelection";
 
 type ViewTab = "topology" | "timeline";
 
@@ -18,6 +20,22 @@ export default function LiveScan() {
   const activeScan = useScanStore((s) => s.activeScan);
   const vulns = useVulnerabilityStore((s) => s.vulnerabilities);
   const [viewTab, setViewTab] = useState<ViewTab>("topology");
+  const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
+  // Keeps content rendered during close animation
+  const [renderedNode, setRenderedNode] = useState<SelectedNode | null>(null);
+
+  const panelOpen = selectedNode !== null;
+
+  useEffect(() => {
+    if (selectedNode) {
+      setRenderedNode(selectedNode);
+    }
+    // renderedNode is cleared via onTransitionEnd, not here
+  }, [selectedNode]);
+
+  const handlePanelTransitionEnd = useCallback(() => {
+    if (!selectedNode) setRenderedNode(null);
+  }, [selectedNode]);
 
   // Subscribe to specific scan if navigated directly
   useEffect(() => {
@@ -25,6 +43,59 @@ export default function LiveScan() {
       send({ type: "SUBSCRIBE_SCAN", payload: { scanId: id } });
     }
   }, [id, activeScan?.id, send]);
+
+  const dismissPanel = () => setSelectedNode(null);
+
+  // ---- Chat panel resize ----
+  const chatRef = useRef<HTMLDivElement>(null);
+  const [chatWidth, setChatWidth] = useState(288); // w-72
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = chatRef.current?.offsetWidth ?? chatWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.min(480, Math.max(180, startW + ev.clientX - startX));
+      if (chatRef.current) chatRef.current.style.width = `${w}px`;
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      if (chatRef.current) setChatWidth(chatRef.current.offsetWidth);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [chatWidth]);
+
+  // ---- Terminal panel resize ----
+  const termRef = useRef<HTMLDivElement>(null);
+  const [termHeight, setTermHeight] = useState(256); // h-64
+  const handleTermResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = termRef.current?.offsetHeight ?? termHeight;
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: MouseEvent) => {
+      // Dragging up (negative delta) increases height
+      const h = Math.min(600, Math.max(80, startH - (ev.clientY - startY)));
+      if (termRef.current) termRef.current.style.height = `${h}px`;
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      if (termRef.current) setTermHeight(termRef.current.offsetHeight);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [termHeight]);
 
   const severityCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   for (const v of vulns) severityCounts[v.severity]++;
@@ -52,48 +123,96 @@ export default function LiveScan() {
       {/* Main 3-pane layout */}
       <div className="flex-1 flex min-h-0">
         {/* Left: Chat */}
-        <div className="w-72 border-r border-strix-border-subtle flex flex-col shrink-0">
+        <div
+          ref={chatRef}
+          className="flex flex-col shrink-0"
+          style={{ width: chatWidth }}
+        >
           <ChatInterface />
         </div>
 
-        {/* Right: Visualization + Terminal */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Tab bar */}
-          <div className="h-9 bg-strix-card border-b border-strix-border-subtle flex items-center px-2 gap-1 shrink-0">
-            <button
-              onClick={() => setViewTab("topology")}
-              className={clsx(
-                "flex items-center gap-1.5 px-3 py-1 rounded-btn text-xs transition-colors",
-                viewTab === "topology"
-                  ? "bg-strix-elevated text-white"
-                  : "text-strix-text-muted hover:text-strix-text-secondary"
-              )}
+        {/* Resize handle */}
+        <div
+          onMouseDown={handleResizeStart}
+          className="w-1 shrink-0 cursor-col-resize bg-strix-border-subtle hover:bg-strix-accent/40 active:bg-strix-accent transition-colors"
+        />
+
+        {/* Right: Visualization + Terminal + Detail Panel */}
+        <div className="flex-1 flex min-w-0">
+          {/* Visualization + Terminal stack */}
+          <div className="flex-1 flex flex-col min-w-0">
+            {/* Tab bar */}
+            <div onClick={dismissPanel} className="h-9 bg-strix-card border-b border-strix-border-subtle flex items-center px-2 gap-1 shrink-0">
+              <button
+                onClick={() => setViewTab("topology")}
+                className={clsx(
+                  "flex items-center gap-1.5 px-3 py-1 rounded-btn text-xs transition-colors",
+                  viewTab === "topology"
+                    ? "bg-strix-elevated text-white"
+                    : "text-strix-text-muted hover:text-strix-text-secondary"
+                )}
+              >
+                <Network size={12} />
+                Attack Flow
+              </button>
+              <button
+                onClick={() => setViewTab("timeline")}
+                className={clsx(
+                  "flex items-center gap-1.5 px-3 py-1 rounded-btn text-xs transition-colors",
+                  viewTab === "timeline"
+                    ? "bg-strix-elevated text-white"
+                    : "text-strix-text-muted hover:text-strix-text-secondary"
+                )}
+              >
+                <Clock size={12} />
+                Timeline
+              </button>
+            </div>
+
+            {/* Visualization area */}
+            <div className="flex-1 min-h-0">
+              {viewTab === "topology" ? <NetworkTopology onNodeSelect={setSelectedNode} /> : <Timeline />}
+            </div>
+
+            {/* Terminal resize handle */}
+            <div
+              onMouseDown={handleTermResizeStart}
+              className="h-1 shrink-0 cursor-row-resize bg-strix-border-subtle hover:bg-strix-accent/40 active:bg-strix-accent transition-colors"
+            />
+
+            {/* Terminal log */}
+            <div
+              ref={termRef}
+              onClick={dismissPanel}
+              className="relative shrink-0"
+              style={{ height: termHeight }}
             >
-              <Network size={12} />
-              Attack Flow
-            </button>
-            <button
-              onClick={() => setViewTab("timeline")}
-              className={clsx(
-                "flex items-center gap-1.5 px-3 py-1 rounded-btn text-xs transition-colors",
-                viewTab === "timeline"
-                  ? "bg-strix-elevated text-white"
-                  : "text-strix-text-muted hover:text-strix-text-secondary"
-              )}
-            >
-              <Clock size={12} />
-              Timeline
-            </button>
+              <TerminalLog />
+            </div>
           </div>
 
-          {/* Visualization area */}
-          <div className="flex-1 min-h-0">
-            {viewTab === "topology" ? <NetworkTopology /> : <Timeline />}
-          </div>
-
-          {/* Terminal log */}
-          <div className="h-64 border-t border-strix-border-subtle relative shrink-0">
-            <TerminalLog />
+          {/* Node detail panel — animated wrapper */}
+          <div
+            className={clsx(
+              "shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out",
+              panelOpen ? "w-80" : "w-0"
+            )}
+            onTransitionEnd={handlePanelTransitionEnd}
+          >
+            <div
+              className={clsx(
+                "h-full transition-transform duration-300 ease-in-out",
+                panelOpen ? "translate-x-0" : "translate-x-full"
+              )}
+            >
+              {renderedNode && activeScan && (
+                <NodeDetailPanel
+                  selection={renderedNode}
+                  scanId={activeScan.id}
+                  onClose={dismissPanel}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>

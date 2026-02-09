@@ -17,6 +17,7 @@ export interface Scan {
   startedAt: string | null;
   completedAt: string | null;
   findings: number;
+  claudeSessionId: string | null;
 }
 
 // ==================== Agent ====================

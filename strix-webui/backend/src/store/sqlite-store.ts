@@ -109,16 +109,18 @@ db.exec(`
 `);
 
 // Migrations — add new columns idempotently
+try { db.exec(`ALTER TABLE scans ADD COLUMN claude_session_id TEXT`); } catch { /* already exists */ }
 try { db.exec(`ALTER TABLE chat_sessions ADD COLUMN claude_session_id TEXT`); } catch { /* already exists */ }
 try { db.exec(`ALTER TABLE chat_sessions ADD COLUMN cwd TEXT`); } catch { /* already exists */ }
 try { db.exec(`ALTER TABLE chat_sessions ADD COLUMN claude_session_mode TEXT`); } catch { /* already exists */ }
 
 const stmts = {
-  insertScan: db.prepare(`INSERT INTO scans (id, target, target_type, status, mode, created_at, started_at, completed_at, findings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  insertScan: db.prepare(`INSERT INTO scans (id, target, target_type, status, mode, created_at, started_at, completed_at, findings, claude_session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   getScan: db.prepare(`SELECT * FROM scans WHERE id = ?`),
   getAllScans: db.prepare(`SELECT * FROM scans ORDER BY created_at DESC`),
   updateScanStatus: db.prepare(`UPDATE scans SET status = ?, completed_at = ? WHERE id = ?`),
   updateScanFindings: db.prepare(`UPDATE scans SET findings = ? WHERE id = ?`),
+  updateScanClaudeSessionId: db.prepare(`UPDATE scans SET claude_session_id = ? WHERE id = ?`),
 
   insertAgent: db.prepare(`INSERT OR REPLACE INTO agents (id, scan_id, name, parent_id, status, task, created_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
   getAgent: db.prepare(`SELECT * FROM agents WHERE id = ?`),
@@ -164,6 +166,7 @@ function rowToScan(row: Record<string, unknown>): Scan {
     startedAt: row.started_at as string | null,
     completedAt: row.completed_at as string | null,
     findings: row.findings as number,
+    claudeSessionId: (row.claude_session_id as string) || null,
   };
 }
 
@@ -255,7 +258,7 @@ function rowToChatMessage(row: Record<string, unknown>): ChatMessageRecord {
 
 export const store = {
   saveScan(scan: Scan): void {
-    stmts.insertScan.run(scan.id, scan.target, scan.targetType, scan.status, scan.mode, scan.createdAt, scan.startedAt, scan.completedAt, scan.findings);
+    stmts.insertScan.run(scan.id, scan.target, scan.targetType, scan.status, scan.mode, scan.createdAt, scan.startedAt, scan.completedAt, scan.findings, scan.claudeSessionId);
   },
   getScan(id: string): Scan | undefined {
     const row = stmts.getScan.get(id) as Record<string, unknown> | undefined;
@@ -269,6 +272,9 @@ export const store = {
   },
   updateScanFindings(id: string, count: number): void {
     stmts.updateScanFindings.run(count, id);
+  },
+  updateScanClaudeSessionId(id: string, claudeSessionId: string): void {
+    stmts.updateScanClaudeSessionId.run(claudeSessionId, id);
   },
 
   saveAgent(agent: Agent): void {
