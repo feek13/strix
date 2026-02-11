@@ -53,3 +53,18 @@ Thumbs.db
 # Local development
 .envrc
 *.local
+
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# Reference codebases (not part of project)
+a2ui-reference/
+claude-agent-webui/
+strix-release/
+
+# Local Claude config
+.claude/
+
+# Local dev copies
+strix/

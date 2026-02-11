@@ -8,6 +8,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import type { Vulnerability, Scan } from "../types";
 import { SEVERITY_TEXT, SEVERITY_CARD_BG } from "../lib/severityStyles";
 import { ChatMarkdown } from "../components/Chat/ChatMarkdown";
+import { API_BASE_URL } from "../lib/config";
 
 interface ReportPreview {
   scan: Scan;
@@ -33,7 +34,7 @@ export default function Reports() {
 
   // Load scans from API
   useEffect(() => {
-    fetch("/api/scans").then((r) => r.json()).then((data) => {
+    fetch(`${API_BASE_URL}/api/scans`).then((r) => r.json()).then((data) => {
       useScanStore.getState().setScans(data);
     }).catch(() => {});
   }, []);
@@ -43,7 +44,7 @@ export default function Reports() {
     setLoading(true);
     if (isMobile) setShowPreview(true);
     try {
-      const res = await fetch(`/api/scans/${scanId}/report/preview`);
+      const res = await fetch(`${API_BASE_URL}/api/scans/${scanId}/report/preview`);
       if (res.ok) {
         setPreview(await res.json());
       }
@@ -58,7 +59,7 @@ export default function Reports() {
     if (!selectedScanId) return;
     setGenerating(true);
     try {
-      const res = await fetch(`/api/scans/${selectedScanId}/report`);
+      const res = await fetch(`${API_BASE_URL}/api/scans/${selectedScanId}/report`);
       if (res.ok) {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);

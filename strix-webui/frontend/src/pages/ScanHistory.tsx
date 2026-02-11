@@ -5,13 +5,14 @@ import { History, Trash2, Loader2, ChevronRight } from "lucide-react";
 import clsx from "clsx";
 import { formatDistanceToNow, format } from "date-fns";
 import { STATUS_DOT, STATUS_TEXT } from "../lib/statusStyles";
+import { API_BASE_URL } from "../lib/config";
 
 export default function ScanHistory() {
   const navigate = useNavigate();
   const { scans, setScans } = useScanStore();
 
   useEffect(() => {
-    fetch("/api/scans")
+    fetch(`${API_BASE_URL}/api/scans`)
       .then((r) => r.json())
       .then(setScans)
       .catch(() => {});

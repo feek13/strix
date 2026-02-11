@@ -15,7 +15,11 @@ export const useLogStore = create<LogStore>((set) => ({
   initLogs: (logs) => set({ logs }),
 
   addLog: (log) =>
-    set((state) => ({ logs: [...state.logs, log] })),
+    set((state) => {
+      const logs = [...state.logs, log];
+      // Cap at 5000 entries to prevent unbounded memory growth
+      return { logs: logs.length > 5000 ? logs.slice(-5000) : logs };
+    }),
 
   clearAll: () => set({ logs: [] }),
 }));

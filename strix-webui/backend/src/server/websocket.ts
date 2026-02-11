@@ -37,7 +37,7 @@ export function createWebSocketServer(port: number = 3001): WebSocketServer {
     agentLastActivity.set(agentId, Date.now());
   }
 
-  eventReceiver.on("event", (event: InternalEvent & { _replay?: boolean }) => {
+  const eventHandler = (event: InternalEvent & { _replay?: boolean }) => {
     try {
       const isReplay = !!event._replay;
       if (isReplay) isReplayingEvents = true;
@@ -291,7 +291,9 @@ export function createWebSocketServer(port: number = 3001): WebSocketServer {
     } finally {
       isReplayingEvents = false;
     }
-  });
+  };
+
+  eventReceiver.on("event", eventHandler);
 
   wss.on("connection", (ws) => {
     console.log("[WS] Client connected");
@@ -396,6 +398,7 @@ export function createWebSocketServer(port: number = 3001): WebSocketServer {
   wss.on("close", () => {
     clearInterval(heartbeatTimer);
     clearInterval(idleCheckTimer);
+    eventReceiver.removeListener("event", eventHandler);
     eventReceiver.stop();
   });
 

@@ -6,6 +6,7 @@ on:
     paths:
       - 'mcp-server/pyproject.toml'
       - 'plugin/.claude-plugin/plugin.json'
+      - 'src-tauri/Cargo.toml'
 
 permissions:
   contents: write
@@ -60,6 +61,28 @@ jobs:
             echo "New Plugin version detected: ${VERSION}"
           fi
 
+      - name: Check Desktop App version
+        id: app
+        run: |
+          VERSION=$(python -c "
+          import re
+          with open('src-tauri/Cargo.toml') as f:
+              for line in f:
+                  m = re.match(r'^version\s*=\s*\"(.+?)\"', line)
+                  if m:
+                      print(m.group(1))
+                      break
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse "app-v${VERSION}" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+            echo "App tag app-v${VERSION} already exists"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+            echo "New App version detected: ${VERSION}"
+          fi
+
       - name: Create MCP tag
         if: steps.mcp.outputs.tag_exists == 'false'
         env:
@@ -78,12 +101,23 @@ jobs:
           git push origin "plugin-v${PLUGIN_VERSION}"
           echo "Created and pushed tag: plugin-v${PLUGIN_VERSION}"
 
+      - name: Create App tag
+        if: steps.app.outputs.tag_exists == 'false'
+        env:
+          APP_VERSION: ${{ steps.app.outputs.version }}
+        run: |
+          git tag "app-v${APP_VERSION}"
+          git push origin "app-v${APP_VERSION}"
+          echo "Created and pushed tag: app-v${APP_VERSION}"
+
       - name: Summary
         env:
           MCP_EXISTS: ${{ steps.mcp.outputs.tag_exists }}
           MCP_VERSION: ${{ steps.mcp.outputs.version }}
           PLUGIN_EXISTS: ${{ steps.plugin.outputs.tag_exists }}
           PLUGIN_VERSION: ${{ steps.plugin.outputs.version }}
+          APP_EXISTS: ${{ steps.app.outputs.tag_exists }}
+          APP_VERSION: ${{ steps.app.outputs.version }}
         run: |
           echo "## Auto-Tag Results" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -96,4 +130,9 @@ jobs:
             echo "- Created **plugin-v${PLUGIN_VERSION}** - release workflow triggered" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "- Plugin v${PLUGIN_VERSION} - tag already exists, skipped" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$APP_EXISTS" = "false" ]; then
+            echo "- Created **app-v${APP_VERSION}** - release workflow triggered" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- App v${APP_VERSION} - tag already exists, skipped" >> "$GITHUB_STEP_SUMMARY"
           fi

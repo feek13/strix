@@ -8,6 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ToolBlock, StreamBlock, ChatMessage } from "../../types/chat";
 import * as chatApi from "../../lib/chatApi";
+import { API_BASE_URL } from "../../lib/config";
 import { useTypewriter } from "../../hooks/useTypewriter";
 import { ToolBlockRenderer } from "../ToolBlockRenderer";
 
@@ -83,6 +84,12 @@ export default function ChatInterface() {
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Abort in-flight streaming fetch on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   const isScanActive = !!activeScan && activeScan.status === "running";
 
@@ -134,7 +141,7 @@ export default function ChatInterface() {
     if (!input.trim()) return;
     setIsStarting(true);
     try {
-      const res = await fetch("/api/scans", {
+      const res = await fetch(`${API_BASE_URL}/api/scans`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target: input.trim(), mode: "auto" }),
@@ -155,7 +162,7 @@ export default function ChatInterface() {
   const handleStop = async () => {
     if (!activeScan) return;
     try {
-      await fetch(`/api/scans/${activeScan.id}`, { method: "DELETE" });
+      await fetch(`${API_BASE_URL}/api/scans/${activeScan.id}`, { method: "DELETE" });
     } catch (err) {
       console.error("Failed to stop scan:", err);
     }
@@ -166,7 +173,7 @@ export default function ChatInterface() {
     if (!activeScan || isResuming) return;
     setIsResuming(true);
     try {
-      const res = await fetch(`/api/scans/${activeScan.id}/resume`, { method: "POST" });
+      const res = await fetch(`${API_BASE_URL}/api/scans/${activeScan.id}/resume`, { method: "POST" });
       if (!res.ok) {
         const err = await res.json();
         console.error("Failed to resume scan:", err.error);
@@ -211,9 +218,12 @@ export default function ChatInterface() {
     }
 
     try {
-      const res = await fetch("/api/ask", {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const res = await fetch(`${API_BASE_URL}/api/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           question: q,
           scanId: activeScan.id,
@@ -354,8 +364,11 @@ export default function ChatInterface() {
     } catch (err) {
       typewriter.stop();
       const msg = err instanceof Error ? err.message : "Unknown error";
-      setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
+      if (msg !== "The user aborted a request.") {
+        setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
+      }
     } finally {
+      abortRef.current = null;
       setAsking(false);
       typewriter.reset();
       setStreamBlocks([]);

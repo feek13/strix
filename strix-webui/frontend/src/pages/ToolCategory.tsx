@@ -6,6 +6,7 @@ import {
   Brain, Box, Users, Search, Syringe, Lock, Workflow, Server, Target, Play,
 } from "lucide-react";
 import clsx from "clsx";
+import { API_BASE_URL } from "../lib/config";
 
 const iconMap: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
   globe: Globe, network: Network, terminal: Terminal, code: Code,
@@ -32,7 +33,7 @@ function SkillPage({ skill, navigate }: { skill: typeof SKILL_CATEGORIES[number]
     if (!target.trim() || isStarting) return;
     setIsStarting(true);
     try {
-      const res = await fetch("/api/scans", {
+      const res = await fetch(`${API_BASE_URL}/api/scans`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target: target.trim(), mode: skill.id }),

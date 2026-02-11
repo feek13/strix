@@ -11,6 +11,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import type { Scan, Vulnerability, Agent, ToolExecution, ChatSession } from "../types";
 import type { ToolBlock, StreamBlock, ChatMessage } from "../types/chat";
 import * as chatApi from "../lib/chatApi";
+import { API_BASE_URL } from "../lib/config";
 import { parseReportContext } from "../lib/chatUtils";
 import { formatRelativeTime, formatDuration } from "../lib/dateUtils";
 import { useTypewriter } from "../hooks/useTypewriter";
@@ -86,6 +87,7 @@ export default function ReportPreview() {
   const reportRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const [data, setData] = useState<ScanDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -116,10 +118,15 @@ export default function ReportPreview() {
   // Selection popup — use ref to avoid re-rendering report on every selection
   const [popup, setPopup] = useState<{ x: number; y: number } | null>(null);
 
+  // Abort in-flight streaming fetch on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
+
   // Fetch scan data
   useEffect(() => {
     if (!id) return;
-    fetch(`/api/scans/${id}`)
+    fetch(`${API_BASE_URL}/api/scans/${id}`)
       .then((r) => r.json())
       .then((d) => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
@@ -286,9 +293,12 @@ export default function ReportPreview() {
     }
 
     try {
-      const res = await fetch("/api/ask", {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const res = await fetch(`${API_BASE_URL}/api/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           scanId: id,
           selectedText: capturedSelectedText,
@@ -453,8 +463,11 @@ export default function ReportPreview() {
     } catch (err) {
       typewriter.stop();
       const msg = err instanceof Error ? err.message : "Unknown error";
-      setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
+      if (msg !== "The user aborted a request.") {
+        setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg}` }]);
+      }
     } finally {
+      abortRef.current = null;
       setAsking(false);
       typewriter.reset();
       setStreamBlocks([]);
@@ -491,7 +504,7 @@ export default function ReportPreview() {
     if (!id) return;
     setGenerating(true);
     try {
-      const res = await fetch(`/api/scans/${id}/report`);
+      const res = await fetch(`${API_BASE_URL}/api/scans/${id}/report`);
       if (res.ok) {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);

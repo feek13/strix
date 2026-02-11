@@ -6,10 +6,9 @@ import { useToolStore } from "../store/toolStore";
 import { useVulnerabilityStore } from "../store/vulnerabilityStore";
 import { useLogStore } from "../store/logStore";
 import type { WSMessage } from "../types";
+import { WS_URL } from "../lib/config";
 
 export type ConnectionStatus = "connected" | "disconnected" | "connecting";
-
-const WS_URL = `ws://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:3001`;
 
 interface WebSocketContextValue {
   send: (msg: unknown) => void;

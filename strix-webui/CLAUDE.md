@@ -50,6 +50,34 @@ Single file defining all TypeScript types used across the network boundary: `Sca
 - **User isolation**: `lib/userId.ts` generates per-browser UUID in localStorage; `lib/chatApi.ts` sends it as `X-Strix-User-Id` header on chat API calls
 - **Visualization**: `NetworkTopology.tsx` uses `@xyflow/react` for hierarchical agent/tool/finding graph with custom node types and animated edges
 
+### Frontend Shared Libraries
+
+Reusable utilities in `frontend/src/lib/` (note: requires `git add -f` due to root `.gitignore`):
+- `severityStyles.ts` — `SEVERITY_TEXT`, `SEVERITY_BADGE`, `SEVERITY_CARD_BG`, `SEVERITY_STROKE`, `SEVERITY_ORDER` maps keyed by severity string
+- `statusStyles.ts` — `STATUS_DOT`, `STATUS_TEXT` maps keyed by agent/scan status
+- `chatUtils.ts` — `parseReportContext()` extracts report-context delimiters from chat messages
+- `chatApi.ts` — Chat session API wrapper, auto-attaches `X-Strix-User-Id` header
+- `userId.ts` — Per-browser UUID generation/persistence in localStorage
+- `dateUtils.ts` — `formatRelativeTime()`, `formatDuration()` helpers
+- `themeColors.ts` — Theme color map for NetworkTopology node rendering in light/dark modes
+
+Reusable UI components in `frontend/src/components/ui/`:
+- `StrixIcon.tsx` — Custom Strix owl SVG icon using `currentColor`, drop-in replacement for lucide icons
+- `CodeBlockWithCopy.tsx` — Code block with copy-to-clipboard button
+- `Collapsible.tsx` — Animated expand/collapse wrapper
+- `ExpandIcon.tsx` — Rotating chevron icon for collapsible sections
+
+Shared chat components in `frontend/src/components/Chat/`:
+- `ChatMarkdown.tsx` — ReactMarkdown renderer with `variant` prop (`"default"` | `"compact"`), used across AskAI, ReportPreview, Reports, and Findings pages
+- `UserMessageContent.tsx` — User message bubble with collapsible report context
+
+### Backend Utilities
+
+Reusable backend utilities in `backend/src/utils/`:
+- `errors.ts` — `extractErrorMessage()` for safe error message extraction
+- `sse-helpers.ts` — `setupSSE()` for Server-Sent Events response setup
+- `docker-preflight.ts` — `requireDocker()` middleware for Docker availability checks
+
 ### Data Flow
 
 ```

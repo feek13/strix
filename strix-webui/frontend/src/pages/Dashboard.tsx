@@ -9,6 +9,7 @@ import clsx from "clsx";
 import { format } from "date-fns";
 import ScanLaunchProgress, { type PreflightStep } from "../components/ScanLaunchProgress";
 import { STATUS_DOT, STATUS_TEXT } from "../lib/statusStyles";
+import { API_BASE_URL } from "../lib/config";
 
 const modeOptions = [
   { id: "auto", label: "Auto", icon: Zap, desc: "Comprehensive assessment" },
@@ -50,7 +51,7 @@ export default function Dashboard() {
 
   // Fetch scan history on mount
   useEffect(() => {
-    fetch("/api/scans")
+    fetch(`${API_BASE_URL}/api/scans`)
       .then((r) => r.json())
       .then(setScans)
       .catch(() => {});
@@ -63,7 +64,7 @@ export default function Dashboard() {
     setPreflightSteps(INITIAL_STEPS.map((s) => ({ ...s })));
 
     try {
-      const res = await fetch("/api/scans/start", {
+      const res = await fetch(`${API_BASE_URL}/api/scans/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target: target.trim(), mode }),

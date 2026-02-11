@@ -9,6 +9,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import type { ChatSession } from "../types";
 import type { ToolBlock, StreamBlock, ChatMessage } from "../types/chat";
 import * as chatApi from "../lib/chatApi";
+import { API_BASE_URL } from "../lib/config";
 import { generateChatMarkdown, type ExportMessage } from "../lib/chatExport";
 import { parseReportContext } from "../lib/chatUtils";
 import { formatRelativeTime } from "../lib/dateUtils";
@@ -57,6 +58,11 @@ export default function AskAI() {
   }, []);
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
+
+  // Abort in-flight streaming fetch on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   // Auto scroll (debounced to once per frame)
   const scrollRaf = useRef(0);
@@ -201,7 +207,7 @@ export default function AskAI() {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      const res = await fetch("/api/ask", {
+      const res = await fetch(`${API_BASE_URL}/api/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

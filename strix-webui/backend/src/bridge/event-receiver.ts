@@ -141,6 +141,8 @@ export class EventReceiver extends EventEmitter {
     });
 
     rl.on("error", () => {
+      rl.close();
+      fileStream.destroy();
       this.isProcessing = false;
     });
   }
@@ -204,6 +206,8 @@ export class EventReceiver extends EventEmitter {
       });
 
       rl.on("error", () => {
+        rl.close();
+        fileStream.destroy();
         this.isProcessing = false;
       });
     } catch {

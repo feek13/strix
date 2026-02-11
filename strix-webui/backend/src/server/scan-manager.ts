@@ -223,7 +223,7 @@ function setupProcessHandlers(child: ChildProcess, scanId: string): void {
     console.error(`[Scan ${scanId.slice(0, 8)}] ${data.toString().trim()}`);
   });
 
-  child.on("exit", (code) => {
+  child.once("exit", (code) => {
     const completedAt = new Date().toISOString();
 
     // Don't overwrite status if scan was manually stopped
@@ -259,7 +259,7 @@ function setupProcessHandlers(child: ChildProcess, scanId: string): void {
     console.log(`[Scan ${scanId.slice(0, 8)}] Process exited with code ${code} → ${status}`);
   });
 
-  child.on("error", (err) => {
+  child.once("error", (err) => {
     console.error(`[Scan ${scanId.slice(0, 8)}] Process error:`, err);
     store.updateScanStatus(scanId, "failed", new Date().toISOString());
     const entry = activeScans.get(scanId);

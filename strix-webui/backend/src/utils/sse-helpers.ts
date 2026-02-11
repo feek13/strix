@@ -36,6 +36,7 @@ export function setupSSE(res: Response, heartbeatMs = 5000): SSEConnection {
   };
 
   res.on("close", end);
+  res.on("error", end);
 
   return {
     send: (data) => {
