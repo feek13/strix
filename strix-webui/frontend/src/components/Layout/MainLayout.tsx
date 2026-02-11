@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import MobileDrawer from "./MobileDrawer";
+import EdgeSwipeNav from "./EdgeSwipeNav";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useIsMobile } from "../../hooks/useIsMobile";
 
@@ -36,6 +37,7 @@ export default function MainLayout() {
           <Outlet />
         </main>
       </div>
+      {isMobile && <EdgeSwipeNav disabled={sidebarOpen} />}
     </div>
   );
 }
