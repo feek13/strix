@@ -7,6 +7,7 @@ pub mod store;
 pub mod utils;
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::routing::get;
 use axum::Router;
@@ -18,6 +19,7 @@ use crate::bridge::EventReceiver;
 use crate::server::rest_api::{AppState, create_rest_router};
 use crate::server::scan_manager::ScanManager;
 use crate::server::websocket::{WsState, spawn_event_processor, spawn_idle_checker, ws_handler};
+use crate::models::ScanStatus;
 use crate::store::AppDb;
 
 const REST_PORT: u16 = 3000;
@@ -25,7 +27,7 @@ const WS_PORT: u16 = 3001;
 
 /// State stored in Tauri managed state for cleanup on exit.
 struct BackendState {
-    event_receiver: Mutex<Option<EventReceiver>>,
+    event_receiver: Arc<Mutex<Option<EventReceiver>>>,
     scan_manager: Arc<ScanManager>,
     app_state: Arc<AppState>,
 }
@@ -142,11 +144,61 @@ async fn start_backend() -> anyhow::Result<BackendState> {
         AppDb::data_dir().join("strix.db")
     );
 
+    // ── 1b. Cleanup old content files ──────────────────────────
+    cleanup_old_content_files();
+
+    // ── 1c. WAL checkpoint timer (every hour) ───────────────────
+    {
+        let checkpoint_db = db.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3600));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                let db = checkpoint_db.clone();
+                let _ = tokio::task::spawn_blocking(move || db.checkpoint_wal()).await;
+            }
+        });
+    }
+
+    // ── 1d. Clear stale events file if no scans are running ────
+    //
+    // events.jsonl is a transport channel — all data is already in SQLite.
+    // If the app was killed mid-scan, ScanCompleted events never get
+    // written, so the file grows forever. Clear it on startup when safe.
+    {
+        let running: Vec<_> = db
+            .get_all_scans()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| s.status == ScanStatus::Running)
+            .collect();
+        if running.is_empty() {
+            let event_file = AppDb::data_dir().join("events").join("events.jsonl");
+            if event_file.exists() {
+                let size = std::fs::metadata(&event_file)
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+                if size > 0 {
+                    std::fs::write(&event_file, "").ok();
+                    let cursor_file = AppDb::data_dir().join("events").join(".cursor");
+                    std::fs::write(&cursor_file, "0").ok();
+                    tracing::info!(
+                        "[Strix] Cleared stale events file ({} bytes, no running scans)",
+                        size
+                    );
+                }
+            }
+        }
+    }
+
     // ── 2. Event Receiver ───────────────────────────────────────
     let (mut event_receiver, event_rx) = EventReceiver::new();
     let event_tx = event_receiver.sender();
     event_receiver.start();
     tracing::info!("[Strix] EventReceiver started");
+
+    let shared_event_receiver = Arc::new(Mutex::new(Some(event_receiver)));
 
     // ── 3. Scan Manager ─────────────────────────────────────────
     let scan_manager = Arc::new(ScanManager::new(db.clone()));
@@ -175,7 +227,12 @@ async fn start_backend() -> anyhow::Result<BackendState> {
     });
 
     // ── 6. WebSocket server ─────────────────────────────────────
-    let ws_state = Arc::new(WsState::new(db.clone(), event_tx));
+    let ws_state = Arc::new(WsState::new(
+        db.clone(),
+        event_tx,
+        scan_manager.clone(),
+        shared_event_receiver.clone(),
+    ));
 
     // Spawn the event processor (reads from broadcast channel, updates WS clients)
     let _event_processor = spawn_event_processor(ws_state.clone(), event_rx);
@@ -200,10 +257,40 @@ async fn start_backend() -> anyhow::Result<BackendState> {
     tracing::info!("[Strix] All backend services started successfully");
 
     Ok(BackendState {
-        event_receiver: Mutex::new(Some(event_receiver)),
+        event_receiver: shared_event_receiver,
         scan_manager,
         app_state,
     })
+}
+
+/// Remove content/*.json files older than 30 days.
+fn cleanup_old_content_files() {
+    let content_dir = AppDb::data_dir().join("content");
+    if !content_dir.exists() {
+        return;
+    }
+    let threshold = std::time::SystemTime::now() - Duration::from_secs(30 * 24 * 3600);
+    let mut cleaned = 0u32;
+    if let Ok(entries) = std::fs::read_dir(&content_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    if modified < threshold {
+                        if std::fs::remove_file(&path).is_ok() {
+                            cleaned += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if cleaned > 0 {
+        tracing::info!("[Strix] Cleaned up {} old content files", cleaned);
+    }
 }
 
 /// Install hook binaries if the compiled binaries exist next to the main executable.

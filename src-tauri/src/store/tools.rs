@@ -29,21 +29,21 @@ impl AppDb {
     pub fn get_tool_execution(&self, id: &str) -> anyhow::Result<Option<ToolExecution>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM tool_executions WHERE id = ?1")?;
-        let result = stmt.query_row(params![id], |row| Ok(row_to_tool_execution(row))).optional()?;
+        let result = stmt.query_row(params![id], row_to_tool_execution).optional()?;
         Ok(result)
     }
 
     pub fn get_tools_by_scan(&self, scan_id: &str) -> anyhow::Result<Vec<ToolExecution>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM tool_executions WHERE scan_id = ?1 ORDER BY started_at")?;
-        let tools = stmt.query_map(params![scan_id], |row| Ok(row_to_tool_execution(row)))?.collect::<Result<Vec<_>, _>>()?;
+        let tools = stmt.query_map(params![scan_id], row_to_tool_execution)?.collect::<Result<Vec<_>, _>>()?;
         Ok(tools)
     }
 
     pub fn get_all_tool_executions(&self) -> anyhow::Result<Vec<ToolExecution>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM tool_executions ORDER BY started_at")?;
-        let tools = stmt.query_map([], |row| Ok(row_to_tool_execution(row)))?.collect::<Result<Vec<_>, _>>()?;
+        let tools = stmt.query_map([], row_to_tool_execution)?.collect::<Result<Vec<_>, _>>()?;
         Ok(tools)
     }
 
@@ -91,21 +91,21 @@ impl AppDb {
     }
 }
 
-fn row_to_tool_execution(row: &rusqlite::Row) -> ToolExecution {
-    let tool_input_str: String = row.get_unwrap("tool_input");
-    let tool_output_str: Option<String> = row.get_unwrap("tool_output");
+fn row_to_tool_execution(row: &rusqlite::Row) -> rusqlite::Result<ToolExecution> {
+    let tool_input_str: String = row.get("tool_input")?;
+    let tool_output_str: Option<String> = row.get("tool_output")?;
 
-    ToolExecution {
-        id: row.get_unwrap("id"),
-        scan_id: row.get_unwrap("scan_id"),
-        agent_id: row.get_unwrap("agent_id"),
-        session_id: row.get_unwrap("session_id"),
-        tool_name: row.get_unwrap("tool_name"),
+    Ok(ToolExecution {
+        id: row.get("id")?,
+        scan_id: row.get("scan_id")?,
+        agent_id: row.get("agent_id")?,
+        session_id: row.get("session_id")?,
+        tool_name: row.get("tool_name")?,
         tool_input: serde_json::from_str(&tool_input_str).unwrap_or(serde_json::Value::Object(Default::default())),
         tool_output: tool_output_str.and_then(|s| serde_json::from_str(&s).ok()),
-        status: ToolExecutionStatus::from_str(&row.get_unwrap::<_, String>("status")),
-        started_at: row.get_unwrap("started_at"),
-        completed_at: row.get_unwrap("completed_at"),
-        duration: row.get_unwrap("duration"),
-    }
+        status: ToolExecutionStatus::from_str(&row.get::<_, String>("status")?),
+        started_at: row.get("started_at")?,
+        completed_at: row.get("completed_at")?,
+        duration: row.get("duration")?,
+    })
 }

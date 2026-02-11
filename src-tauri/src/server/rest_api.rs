@@ -16,7 +16,7 @@ use tower_http::cors::CorsLayer;
 
 use axum::http::header;
 
-use crate::models::{ChatMessageRecord, ChatSession};
+use crate::models::{ChatMessageRecord, ChatSession, Scan};
 use crate::reports::chat_docx_generator::generate_chat_docx;
 use crate::reports::chat_pdf_generator::generate_chat_pdf;
 use crate::reports::pdf_generator::generate_scan_pdf;
@@ -112,6 +112,30 @@ fn get_user_id(headers: &HeaderMap) -> Result<String, (StatusCode, Json<Value>)>
                 Json(json!({"error": "Missing X-Strix-User-Id header"})),
             )
         })
+}
+
+// =====================================================================
+// Helpers: common error response + resource lookups
+// =====================================================================
+
+fn error_response(status: StatusCode, msg: &str) -> Response {
+    (status, Json(json!({"error": msg}))).into_response()
+}
+
+fn require_scan(db: &AppDb, id: &str) -> Result<Scan, Response> {
+    match db.get_scan(id) {
+        Ok(Some(s)) => Ok(s),
+        Ok(None) => Err(error_response(StatusCode::NOT_FOUND, "Scan not found")),
+        Err(e) => Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string())),
+    }
+}
+
+fn require_chat_session(db: &AppDb, id: &str, user_id: &str) -> Result<ChatSession, Response> {
+    match db.get_chat_session(id, user_id) {
+        Ok(Some(s)) => Ok(s),
+        Ok(None) => Err(error_response(StatusCode::NOT_FOUND, "Session not found")),
+        Err(e) => Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string())),
+    }
 }
 
 // =====================================================================
@@ -329,22 +353,9 @@ async fn list_scans(State(state): State<Arc<AppState>>) -> Response {
 
 /// GET /api/scans/:id — Get scan detail with related data.
 async fn get_scan(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Response {
-    let scan = match state.db.get_scan(&id) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Scan not found"})),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-                .into_response()
-        }
+    let scan = match require_scan(&state.db, &id) {
+        Ok(s) => s,
+        Err(r) => return r,
     };
 
     let agents = state.db.get_agents_by_scan(&scan.id).unwrap_or_default();
@@ -410,22 +421,9 @@ async fn resume_scan(
 
 /// GET /api/scans/:id/report/preview — Report preview (JSON summary).
 async fn report_preview(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Response {
-    let scan = match state.db.get_scan(&id) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Scan not found"})),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-                .into_response()
-        }
+    let scan = match require_scan(&state.db, &id) {
+        Ok(s) => s,
+        Err(r) => return r,
     };
 
     let vulnerabilities = state.db.get_vulns_by_scan(&scan.id).unwrap_or_default();
@@ -589,22 +587,8 @@ async fn delete_chat_session(
         Ok(id) => id,
         Err(e) => return e.into_response(),
     };
-    match state.db.get_chat_session(&id, &user_id) {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Session not found"})),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-                .into_response()
-        }
+    if let Err(r) = require_chat_session(&state.db, &id, &user_id) {
+        return r;
     }
     state.db.delete_chat_session(&id, &user_id).ok();
     Json(json!({"message": "Session deleted"})).into_response()
@@ -621,22 +605,9 @@ async fn update_chat_session(
         Ok(id) => id,
         Err(e) => return e.into_response(),
     };
-    let session = match state.db.get_chat_session(&id, &user_id) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Session not found"})),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-                .into_response()
-        }
+    let session = match require_chat_session(&state.db, &id, &user_id) {
+        Ok(s) => s,
+        Err(r) => return r,
     };
     if let Some(ref title) = body.title {
         state.db.update_chat_session_title(&id, &user_id, title).ok();
@@ -655,22 +626,8 @@ async fn get_chat_messages(
         Ok(id) => id,
         Err(e) => return e.into_response(),
     };
-    match state.db.get_chat_session(&id, &user_id) {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Session not found"})),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-                .into_response()
-        }
+    if let Err(r) = require_chat_session(&state.db, &id, &user_id) {
+        return r;
     }
     match state.db.get_chat_messages(&id, &user_id) {
         Ok(msgs) => Json(msgs).into_response(),
@@ -693,22 +650,8 @@ async fn save_chat_message(
         Ok(id) => id,
         Err(e) => return e.into_response(),
     };
-    match state.db.get_chat_session(&id, &user_id) {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Session not found"})),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-                .into_response()
-        }
+    if let Err(r) = require_chat_session(&state.db, &id, &user_id) {
+        return r;
     }
     let message = ChatMessageRecord {
         id: uuid::Uuid::new_v4().to_string(),
@@ -976,6 +919,188 @@ fn build_ask_prompt(
     prompt
 }
 
+/// Build Claude CLI args for Ask AI. Returns (args, claude_session_id).
+fn build_cli_args(
+    is_resume: bool,
+    is_execute: bool,
+    session: &Option<ChatSession>,
+) -> (Vec<String>, String) {
+    let mut args: Vec<String> = Vec::new();
+    let claude_session_id;
+
+    if is_resume {
+        claude_session_id = session
+            .as_ref()
+            .and_then(|s| s.claude_session_id.clone())
+            .unwrap_or_default();
+        args.push("--resume".into());
+        args.push(claude_session_id.clone());
+    } else {
+        claude_session_id = uuid::Uuid::new_v4().to_string();
+        args.push("--session-id".into());
+        args.push(claude_session_id.clone());
+    }
+
+    args.extend(
+        ["--output-format", "stream-json", "--verbose"]
+            .iter()
+            .map(|s| s.to_string()),
+    );
+
+    if is_execute {
+        args.push("--dangerously-skip-permissions".into());
+    } else {
+        args.extend(
+            ["--mcp-config", r#"{"mcpServers":{}}"#, "--strict-mcp-config"]
+                .iter()
+                .map(|s| s.to_string()),
+        );
+        args.extend(
+            ["--max-turns", "1", "--model", "sonnet"]
+                .iter()
+                .map(|s| s.to_string()),
+        );
+    }
+
+    (args, claude_session_id)
+}
+
+/// Process a single stream-json event from Claude CLI stdout.
+/// Returns true if text content was sent to the client.
+fn process_stream_event(
+    event: &Value,
+    sender: &SseSender,
+    state: &AppState,
+    process_id: &str,
+    text_sent: &mut bool,
+) {
+    let event_type = event
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
+
+    match event_type {
+        "system" => {
+            if event.get("subtype").and_then(|s| s.as_str()) == Some("init") {
+                sender.send_json(&json!({"type": "init"}));
+            }
+        }
+        "assistant" => {
+            let content = event
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array());
+            if let Some(blocks) = content {
+                for block in blocks {
+                    let block_type = block
+                        .get("type")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("");
+                    match block_type {
+                        "text" => {
+                            if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                                *text_sent = true;
+                                if let Ok(mut procs) = state.active_ask_processes.lock() {
+                                    if let Some(proc) = procs.get_mut(process_id) {
+                                        proc.accumulated_text.push_str(text);
+                                    }
+                                }
+                                sender.send_json(&json!({"type": "text", "text": text}));
+                            }
+                        }
+                        "tool_use" => {
+                            sender.send_json(&json!({
+                                "type": "tool_use",
+                                "name": block.get("name"),
+                                "toolUseId": block.get("id"),
+                                "input": block.get("input"),
+                            }));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        "user" => {
+            let content = event
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array());
+            if let Some(blocks) = content {
+                for block in blocks {
+                    if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
+                        let result_content = block
+                            .get("content")
+                            .map(|c| {
+                                if c.is_string() {
+                                    c.as_str().unwrap_or("").to_string()
+                                } else {
+                                    serde_json::to_string(c).unwrap_or_default()
+                                }
+                            })
+                            .unwrap_or_default();
+                        let truncated = if result_content.len() > 3000 {
+                            format!("{}\n...(truncated)", &result_content[..3000])
+                        } else {
+                            result_content
+                        };
+                        sender.send_json(&json!({
+                            "type": "tool_result",
+                            "toolUseId": block.get("tool_use_id"),
+                            "content": truncated,
+                            "isError": block.get("is_error")
+                                .and_then(|e| e.as_bool())
+                                .unwrap_or(false),
+                        }));
+                    }
+                }
+            }
+        }
+        "result" => {
+            let is_error = event
+                .get("is_error")
+                .and_then(|e| e.as_bool())
+                .unwrap_or(false);
+            let subtype = event
+                .get("subtype")
+                .and_then(|s| s.as_str())
+                .unwrap_or("");
+
+            if is_error || subtype == "error" || subtype == "error_during_execution" {
+                let error_msg = event
+                    .get("errors")
+                    .and_then(|e| e.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|e| e.as_str())
+                    .or_else(|| event.get("result").and_then(|r| r.as_str()))
+                    .or_else(|| event.get("error").and_then(|e| e.as_str()))
+                    .unwrap_or("Unknown error");
+                tracing::error!("[Ask AI] Result error: {}", error_msg);
+                sender.send_json(&json!({"error": error_msg}));
+            } else if !*text_sent {
+                if let Some(result_text) = event.get("result").and_then(|r| r.as_str()) {
+                    if !result_text.is_empty() {
+                        *text_sent = true;
+                        if let Ok(mut procs) = state.active_ask_processes.lock() {
+                            if let Some(proc) = procs.get_mut(process_id) {
+                                proc.accumulated_text.push_str(result_text);
+                            }
+                        }
+                        sender.send_json(&json!({"type": "text", "text": result_text}));
+                    }
+                }
+            }
+
+            let result = event
+                .get("result")
+                .and_then(|r| r.as_str())
+                .unwrap_or("");
+            sender.send_json(&json!({"type": "result", "result": result}));
+        }
+        _ => {}
+    }
+}
+
 /// POST /api/ask — Ask AI via SSE streaming through Claude CLI.
 /// Supports ask mode (lightweight Q&A) and execute mode (full security testing).
 async fn ask_ai(
@@ -1094,47 +1219,7 @@ async fn ask_ai(
         }
 
         // Build CLI args
-        let mut args: Vec<String> = Vec::new();
-        let claude_session_id;
-
-        if is_resume {
-            claude_session_id = session
-                .as_ref()
-                .and_then(|s| s.claude_session_id.clone())
-                .unwrap_or_default();
-            args.push("--resume".into());
-            args.push(claude_session_id.clone());
-        } else {
-            claude_session_id = uuid::Uuid::new_v4().to_string();
-            args.push("--session-id".into());
-            args.push(claude_session_id.clone());
-        }
-
-        // Both modes use stream-json for real-time token streaming
-        args.extend(
-            ["--output-format", "stream-json", "--verbose"]
-                .iter()
-                .map(|s| s.to_string()),
-        );
-
-        if is_execute {
-            args.push("--dangerously-skip-permissions".into());
-        } else {
-            args.extend(
-                [
-                    "--mcp-config",
-                    r#"{"mcpServers":{}}"#,
-                    "--strict-mcp-config",
-                ]
-                .iter()
-                .map(|s| s.to_string()),
-            );
-            args.extend(
-                ["--max-turns", "1", "--model", "sonnet"]
-                    .iter()
-                    .map(|s| s.to_string()),
-            );
-        }
+        let (args, claude_session_id) = build_cli_args(is_resume, is_execute, &session);
 
         tracing::info!(
             "[Ask AI] Spawning claude in {} mode, {} session ({} chars)",
@@ -1263,170 +1348,7 @@ async fn ask_ai(
                     Ok(v) => v,
                     Err(_) => continue,
                 };
-
-                let event_type = event
-                    .get("type")
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("");
-
-                match event_type {
-                    "system" => {
-                        if event.get("subtype").and_then(|s| s.as_str()) == Some("init") {
-                            sender.send_json(&json!({"type": "init"}));
-                        }
-                    }
-                    "assistant" => {
-                        let content = event
-                            .get("message")
-                            .and_then(|m| m.get("content"))
-                            .and_then(|c| c.as_array());
-                        if let Some(blocks) = content {
-                            for block in blocks {
-                                let block_type = block
-                                    .get("type")
-                                    .and_then(|t| t.as_str())
-                                    .unwrap_or("");
-                                match block_type {
-                                    "text" => {
-                                        if let Some(text) =
-                                            block.get("text").and_then(|t| t.as_str())
-                                        {
-                                            text_sent = true;
-                                            // Accumulate for graceful shutdown
-                                            if let Ok(mut procs) =
-                                                state2.active_ask_processes.lock()
-                                            {
-                                                if let Some(proc) =
-                                                    procs.get_mut(&process_id)
-                                                {
-                                                    proc.accumulated_text
-                                                        .push_str(text);
-                                                }
-                                            }
-                                            sender.send_json(
-                                                &json!({"type": "text", "text": text}),
-                                            );
-                                        }
-                                    }
-                                    "tool_use" => {
-                                        sender.send_json(&json!({
-                                            "type": "tool_use",
-                                            "name": block.get("name"),
-                                            "toolUseId": block.get("id"),
-                                            "input": block.get("input"),
-                                        }));
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                    "user" => {
-                        let content = event
-                            .get("message")
-                            .and_then(|m| m.get("content"))
-                            .and_then(|c| c.as_array());
-                        if let Some(blocks) = content {
-                            for block in blocks {
-                                if block.get("type").and_then(|t| t.as_str())
-                                    == Some("tool_result")
-                                {
-                                    let result_content = block
-                                        .get("content")
-                                        .map(|c| {
-                                            if c.is_string() {
-                                                c.as_str()
-                                                    .unwrap_or("")
-                                                    .to_string()
-                                            } else {
-                                                serde_json::to_string(c)
-                                                    .unwrap_or_default()
-                                            }
-                                        })
-                                        .unwrap_or_default();
-                                    let truncated = if result_content.len() > 3000 {
-                                        format!(
-                                            "{}\n...(truncated)",
-                                            &result_content[..3000]
-                                        )
-                                    } else {
-                                        result_content
-                                    };
-                                    sender.send_json(&json!({
-                                        "type": "tool_result",
-                                        "toolUseId": block.get("tool_use_id"),
-                                        "content": truncated,
-                                        "isError": block.get("is_error")
-                                            .and_then(|e| e.as_bool())
-                                            .unwrap_or(false),
-                                    }));
-                                }
-                            }
-                        }
-                    }
-                    "result" => {
-                        let is_error = event
-                            .get("is_error")
-                            .and_then(|e| e.as_bool())
-                            .unwrap_or(false);
-                        let subtype = event
-                            .get("subtype")
-                            .and_then(|s| s.as_str())
-                            .unwrap_or("");
-
-                        if is_error
-                            || subtype == "error"
-                            || subtype == "error_during_execution"
-                        {
-                            let error_msg = event
-                                .get("errors")
-                                .and_then(|e| e.as_array())
-                                .and_then(|arr| arr.first())
-                                .and_then(|e| e.as_str())
-                                .or_else(|| {
-                                    event.get("result").and_then(|r| r.as_str())
-                                })
-                                .or_else(|| {
-                                    event.get("error").and_then(|e| e.as_str())
-                                })
-                                .unwrap_or("Unknown error");
-                            tracing::error!(
-                                "[Ask AI] Result error: {}",
-                                error_msg
-                            );
-                            sender.send_json(&json!({"error": error_msg}));
-                        } else if !text_sent {
-                            if let Some(result_text) =
-                                event.get("result").and_then(|r| r.as_str())
-                            {
-                                if !result_text.is_empty() {
-                                    text_sent = true;
-                                    if let Ok(mut procs) =
-                                        state2.active_ask_processes.lock()
-                                    {
-                                        if let Some(proc) =
-                                            procs.get_mut(&process_id)
-                                        {
-                                            proc.accumulated_text
-                                                .push_str(result_text);
-                                        }
-                                    }
-                                    sender.send_json(
-                                        &json!({"type": "text", "text": result_text}),
-                                    );
-                                }
-                            }
-                        }
-
-                        let result = event
-                            .get("result")
-                            .and_then(|r| r.as_str())
-                            .unwrap_or("");
-                        sender
-                            .send_json(&json!({"type": "result", "result": result}));
-                    }
-                    _ => {}
-                }
+                process_stream_event(&event, &sender, &state2, &process_id, &mut text_sent);
             }
         }
 
@@ -1506,18 +1428,9 @@ async fn get_scan_report(
 ) -> Response {
     let db = &state.db;
 
-    let scan = match db.get_scan(&id) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return (StatusCode::NOT_FOUND, Json(json!({"error": "Scan not found"}))).into_response()
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("DB error: {}", e)})),
-            )
-                .into_response()
-        }
+    let scan = match require_scan(db, &id) {
+        Ok(s) => s,
+        Err(r) => return r,
     };
 
     let vulns = db.get_vulns_by_scan(&id).unwrap_or_default();
@@ -1545,33 +1458,13 @@ async fn export_chat_pdf(
     headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    let user_id = match headers.get("x-strix-user-id").and_then(|v| v.to_str().ok()) {
-        Some(uid) => uid.to_string(),
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Missing user ID"})),
-            )
-                .into_response()
-        }
+    let user_id = match get_user_id(&headers) {
+        Ok(id) => id,
+        Err(e) => return e.into_response(),
     };
-
-    let session = match state.db.get_chat_session(&id, &user_id) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Session not found"})),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("DB error: {}", e)})),
-            )
-                .into_response()
-        }
+    let session = match require_chat_session(&state.db, &id, &user_id) {
+        Ok(s) => s,
+        Err(r) => return r,
     };
 
     let messages = state
@@ -1599,33 +1492,13 @@ async fn export_chat_docx(
     headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    let user_id = match headers.get("x-strix-user-id").and_then(|v| v.to_str().ok()) {
-        Some(uid) => uid.to_string(),
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Missing user ID"})),
-            )
-                .into_response()
-        }
+    let user_id = match get_user_id(&headers) {
+        Ok(id) => id,
+        Err(e) => return e.into_response(),
     };
-
-    let session = match state.db.get_chat_session(&id, &user_id) {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Session not found"})),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("DB error: {}", e)})),
-            )
-                .into_response()
-        }
+    let session = match require_chat_session(&state.db, &id, &user_id) {
+        Ok(s) => s,
+        Err(r) => return r,
     };
 
     let messages = state

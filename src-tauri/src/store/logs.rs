@@ -26,14 +26,14 @@ impl AppDb {
     pub fn get_logs_by_scan(&self, scan_id: &str) -> anyhow::Result<Vec<LogEntry>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM logs WHERE scan_id = ?1 ORDER BY timestamp")?;
-        let logs = stmt.query_map(params![scan_id], |row| Ok(row_to_log(row)))?.collect::<Result<Vec<_>, _>>()?;
+        let logs = stmt.query_map(params![scan_id], row_to_log)?.collect::<Result<Vec<_>, _>>()?;
         Ok(logs)
     }
 
     pub fn get_recent_logs(&self, scan_id: &str, limit: i64) -> anyhow::Result<Vec<LogEntry>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM logs WHERE scan_id = ?1 ORDER BY timestamp DESC LIMIT ?2")?;
-        let mut logs: Vec<LogEntry> = stmt.query_map(params![scan_id, limit], |row| Ok(row_to_log(row)))?.collect::<Result<Vec<_>, _>>()?;
+        let mut logs: Vec<LogEntry> = stmt.query_map(params![scan_id, limit], row_to_log)?.collect::<Result<Vec<_>, _>>()?;
         logs.reverse();
         Ok(logs)
     }
@@ -47,16 +47,16 @@ impl AppDb {
     }
 }
 
-fn row_to_log(row: &rusqlite::Row) -> LogEntry {
-    let details_str: Option<String> = row.get_unwrap("details");
-    LogEntry {
-        id: row.get_unwrap("id"),
-        scan_id: row.get_unwrap("scan_id"),
-        agent_id: row.get_unwrap("agent_id"),
-        level: LogLevel::from_str(&row.get_unwrap::<_, String>("level")),
-        message: row.get_unwrap("message"),
-        tool_name: row.get_unwrap("tool_name"),
-        timestamp: row.get_unwrap("timestamp"),
+fn row_to_log(row: &rusqlite::Row) -> rusqlite::Result<LogEntry> {
+    let details_str: Option<String> = row.get("details")?;
+    Ok(LogEntry {
+        id: row.get("id")?,
+        scan_id: row.get("scan_id")?,
+        agent_id: row.get("agent_id")?,
+        level: LogLevel::from_str(&row.get::<_, String>("level")?),
+        message: row.get("message")?,
+        tool_name: row.get("tool_name")?,
+        timestamp: row.get("timestamp")?,
         details: details_str.and_then(|s| serde_json::from_str(&s).ok()),
-    }
+    })
 }

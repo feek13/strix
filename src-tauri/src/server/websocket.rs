@@ -10,8 +10,9 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::{broadcast, Mutex, RwLock};
 use uuid::Uuid;
 
-use crate::bridge::event_receiver::EventWithReplay;
+use crate::bridge::event_receiver::{EventReceiver, EventWithReplay};
 use crate::models::*;
+use crate::server::scan_manager::ScanManager;
 use crate::store::AppDb;
 
 const IDLE_CHECK_INTERVAL_MS: u64 = 10_000;
@@ -56,17 +57,38 @@ pub struct WsState {
     /// Event broadcast sender (from EventReceiver). Kept for future use (e.g. injecting events).
     #[allow(dead_code)]
     event_tx: broadcast::Sender<EventWithReplay>,
+    /// Scan manager reference for checking active scans.
+    scan_manager: Arc<ScanManager>,
+    /// Shared EventReceiver for clearing events file.
+    event_receiver: Arc<std::sync::Mutex<Option<EventReceiver>>>,
 }
 
 impl WsState {
-    pub fn new(db: AppDb, event_tx: broadcast::Sender<EventWithReplay>) -> Self {
+    pub fn new(
+        db: AppDb,
+        event_tx: broadcast::Sender<EventWithReplay>,
+        scan_manager: Arc<ScanManager>,
+        event_receiver: Arc<std::sync::Mutex<Option<EventReceiver>>>,
+    ) -> Self {
         Self {
             db,
             session_agent_map: RwLock::new(HashMap::new()),
             agent_last_activity: RwLock::new(HashMap::new()),
             clients: RwLock::new(HashMap::new()),
             event_tx,
+            scan_manager,
+            event_receiver,
         }
+    }
+
+    /// Spawn a blocking DB operation on the tokio blocking pool.
+    /// Returns JoinHandle that can optionally be `.await`ed.
+    fn spawn_db_op<F>(&self, f: F) -> tokio::task::JoinHandle<()>
+    where
+        F: FnOnce(&AppDb) + Send + 'static,
+    {
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || f(&db))
     }
 
     /// Broadcast a WSMessage to all connected clients.
@@ -103,7 +125,7 @@ impl WsState {
             .insert(agent_id.to_string(), Instant::now());
     }
 
-    /// Handle a single internal event. Direct port of the JS eventHandler function.
+    /// Handle a single internal event. Dispatches to per-event handler methods.
     pub async fn handle_event(&self, event_with_replay: EventWithReplay) {
         let is_replay = event_with_replay.is_replay;
         let event = event_with_replay.event;
@@ -120,393 +142,455 @@ impl WsState {
 
         match event {
             InternalEvent::ScanStarted { scan_id, .. } => {
-                if let Ok(Some(scan)) = self.db.get_scan(&scan_id) {
-                    if !is_replay {
-                        self.broadcast(&WSMessage::ScanStarted { payload: scan }).await;
-                    }
-                }
+                self.on_scan_started(&scan_id, is_replay).await;
             }
+            InternalEvent::AgentCreating { scan_id, session_id, tool_use_id, task_input, timestamp, .. } => {
+                self.on_agent_creating(scan_id, session_id, tool_use_id, task_input, timestamp, is_replay).await;
+            }
+            InternalEvent::AgentStopped { session_id, timestamp, .. } => {
+                self.on_agent_stopped(session_id, timestamp, is_replay).await;
+            }
+            InternalEvent::ToolStarted { scan_id, session_id, tool_use_id, tool_name, tool_input, timestamp, .. } => {
+                self.on_tool_started(scan_id, session_id, tool_use_id, tool_name, tool_input, timestamp, is_replay).await;
+            }
+            InternalEvent::ToolCompleted { scan_id, tool_use_id, tool_name, tool_output, timestamp, .. } => {
+                self.on_tool_completed(scan_id, tool_use_id, tool_name, tool_output, timestamp, is_replay).await;
+            }
+            InternalEvent::VulnerabilityFound { scan_id, agent_id, vulnerability, timestamp, .. } => {
+                self.on_vulnerability_found(scan_id, agent_id, vulnerability, timestamp, is_replay).await;
+            }
+            InternalEvent::ScanCompleted { scan_id, status, timestamp, .. } => {
+                self.on_scan_completed(scan_id, status, timestamp, is_replay).await;
+            }
+        }
+    }
 
-            InternalEvent::AgentCreating {
+    async fn on_scan_started(&self, scan_id: &str, is_replay: bool) {
+        if let Ok(Some(scan)) = self.db.get_scan(scan_id) {
+            if !is_replay {
+                self.broadcast(&WSMessage::ScanStarted { payload: scan }).await;
+            }
+        }
+    }
+
+    async fn on_agent_creating(
+        &self,
+        scan_id: String,
+        session_id: String,
+        tool_use_id: String,
+        task_input: serde_json::Value,
+        timestamp: String,
+        is_replay: bool,
+    ) {
+        let agent_id = generate_agent_id_from_tool_use_id(&tool_use_id);
+
+        // Check if agent already exists (dedup on replay)
+        if let Ok(Some(_)) = self.db.get_agent(&agent_id) {
+            self.session_agent_map
+                .write()
+                .await
+                .insert(session_id.clone(), agent_id.clone());
+            self.update_agent_activity(&agent_id).await;
+            return;
+        }
+
+        let parent_id = self
+            .session_agent_map
+            .read()
+            .await
+            .get(&session_id)
+            .cloned();
+
+        let name = task_input
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Security Agent")
+            .to_string();
+        let task = task_input
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let agent = Agent {
+            id: agent_id.clone(),
+            scan_id: scan_id.clone(),
+            name: name.clone(),
+            parent_id,
+            status: AgentStatus::Running,
+            task,
+            created_at: timestamp.clone(),
+            finished_at: None,
+        };
+
+        self.session_agent_map
+            .write()
+            .await
+            .insert(session_id, agent_id.clone());
+        self.update_agent_activity(&agent_id).await;
+
+        let a = agent.clone();
+        self.spawn_db_op(move |db| { let _ = db.save_agent(&a); });
+        if !is_replay {
+            self.broadcast(&WSMessage::AgentCreated {
+                payload: agent.clone(),
+            })
+            .await;
+
+            let log = LogEntry {
+                id: Uuid::new_v4().to_string(),
                 scan_id,
-                session_id,
-                tool_use_id,
-                task_input,
+                agent_id: Some(agent_id),
+                level: LogLevel::Info,
+                message: format!("Agent spawned: {}", name),
+                tool_name: None,
                 timestamp,
-                ..
-            } => {
-                let agent_id = generate_agent_id_from_tool_use_id(&tool_use_id);
+                details: None,
+            };
+            let l = log.clone();
+            self.spawn_db_op(move |db| { let _ = db.save_log(&l); });
+            self.broadcast(&WSMessage::LogEntry { payload: log }).await;
+        }
+    }
 
-                // Check if agent already exists (dedup on replay)
-                if let Ok(Some(_)) = self.db.get_agent(&agent_id) {
-                    self.session_agent_map
-                        .write()
-                        .await
-                        .insert(session_id.clone(), agent_id.clone());
-                    self.update_agent_activity(&agent_id).await;
-                    return;
-                }
+    async fn on_agent_stopped(&self, session_id: String, timestamp: String, is_replay: bool) {
+        let agent_id = self
+            .session_agent_map
+            .read()
+            .await
+            .get(&session_id)
+            .cloned();
 
-                let parent_id = self
-                    .session_agent_map
-                    .read()
-                    .await
-                    .get(&session_id)
-                    .cloned();
+        if let Some(agent_id) = agent_id {
+            let aid = agent_id.clone();
+            let ts = timestamp.clone();
+            self.spawn_db_op(move |db| {
+                let _ = db.update_agent_status(&aid, &AgentStatus::Completed, Some(&ts));
+            });
+            if !is_replay {
+                self.broadcast(&WSMessage::AgentStatusChanged {
+                    payload: AgentStatusPayload {
+                        id: agent_id.clone(),
+                        status: AgentStatus::Completed,
+                        finished_at: Some(timestamp),
+                    },
+                })
+                .await;
+            }
+            self.session_agent_map.write().await.remove(&session_id);
+            self.agent_last_activity.write().await.remove(&agent_id);
+        }
+    }
 
-                let name = task_input
-                    .get("description")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Security Agent")
-                    .to_string();
-                let task = task_input
-                    .get("prompt")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+    async fn on_tool_started(
+        &self,
+        scan_id: String,
+        session_id: String,
+        tool_use_id: String,
+        tool_name: String,
+        tool_input: serde_json::Value,
+        timestamp: String,
+        is_replay: bool,
+    ) {
+        let mut agent_id = self
+            .session_agent_map
+            .read()
+            .await
+            .get(&session_id)
+            .cloned()
+            .unwrap_or_default();
 
-                let agent = Agent {
-                    id: agent_id.clone(),
-                    scan_id: scan_id.clone(),
-                    name: name.clone(),
-                    parent_id,
-                    status: AgentStatus::Running,
-                    task,
-                    created_at: timestamp.clone(),
-                    finished_at: None,
-                };
+        if agent_id.is_empty() {
+            agent_id = self.resolve_agent_for_tool(&scan_id, &session_id, &timestamp, is_replay).await;
+        }
 
-                self.session_agent_map
-                    .write()
-                    .await
-                    .insert(session_id, agent_id.clone());
-                self.update_agent_activity(&agent_id).await;
+        self.update_agent_activity(&agent_id).await;
 
-                let _ = self.db.save_agent(&agent);
-                if !is_replay {
-                    self.broadcast(&WSMessage::AgentCreated {
-                        payload: agent.clone(),
-                    })
+        let tool_execution = ToolExecution {
+            id: tool_use_id,
+            scan_id: scan_id.clone(),
+            agent_id: agent_id.clone(),
+            session_id: session_id.clone(),
+            tool_name: tool_name.clone(),
+            tool_input,
+            tool_output: None,
+            status: ToolExecutionStatus::Running,
+            started_at: timestamp.clone(),
+            completed_at: None,
+            duration: None,
+        };
+
+        let te = tool_execution.clone();
+        self.spawn_db_op(move |db| { let _ = db.save_tool_execution(&te); });
+        if !is_replay {
+            self.broadcast(&WSMessage::ToolStarted {
+                payload: tool_execution,
+            })
+            .await;
+
+            let log = LogEntry {
+                id: Uuid::new_v4().to_string(),
+                scan_id,
+                agent_id: Some(agent_id),
+                level: LogLevel::Info,
+                message: format!("Tool started: {}", tool_name),
+                tool_name: Some(tool_name),
+                timestamp,
+                details: None,
+            };
+            let l = log.clone();
+            self.spawn_db_op(move |db| { let _ = db.save_log(&l); });
+            self.broadcast(&WSMessage::LogEntry { payload: log }).await;
+        }
+    }
+
+    /// Resolve which agent a tool belongs to when no session mapping exists.
+    async fn resolve_agent_for_tool(
+        &self,
+        scan_id: &str,
+        session_id: &str,
+        timestamp: &str,
+        is_replay: bool,
+    ) -> String {
+        // Try to find an agent without tools (heuristic from JS)
+        let all_agents = self.db.get_agents_by_scan(scan_id).unwrap_or_default();
+        let all_tools = self.db.get_tools_by_scan(scan_id).unwrap_or_default();
+
+        let agents_without_tools: Vec<&Agent> = all_agents
+            .iter()
+            .filter(|a| {
+                a.status == AgentStatus::Running
+                    && a.parent_id.is_some()
+                    && !all_tools.iter().any(|t| t.agent_id == a.id)
+            })
+            .collect();
+
+        if !agents_without_tools.is_empty() {
+            let oldest = agents_without_tools
+                .iter()
+                .min_by_key(|a| &a.created_at)
+                .unwrap();
+            let agent_id = oldest.id.clone();
+            self.session_agent_map
+                .write()
+                .await
+                .insert(session_id.to_string(), agent_id.clone());
+            return agent_id;
+        }
+
+        // Create or find root agent deterministically
+        let deterministic_id = generate_root_agent_id(session_id);
+
+        if let Ok(Some(_)) = self.db.get_agent(&deterministic_id) {
+            self.session_agent_map
+                .write()
+                .await
+                .insert(session_id.to_string(), deterministic_id.clone());
+            return deterministic_id;
+        }
+
+        let root_agent = Agent {
+            id: deterministic_id.clone(),
+            scan_id: scan_id.to_string(),
+            name: "Strix Scanner".into(),
+            parent_id: None,
+            status: AgentStatus::Running,
+            task: "Main security assessment".into(),
+            created_at: timestamp.to_string(),
+            finished_at: None,
+        };
+        self.session_agent_map
+            .write()
+            .await
+            .insert(session_id.to_string(), deterministic_id.clone());
+        let ra = root_agent.clone();
+        self.spawn_db_op(move |db| { let _ = db.save_agent(&ra); });
+        if !is_replay {
+            self.broadcast(&WSMessage::AgentCreated {
+                payload: root_agent,
+            })
+            .await;
+        }
+        deterministic_id
+    }
+
+    async fn on_tool_completed(
+        &self,
+        scan_id: String,
+        tool_use_id: String,
+        tool_name: String,
+        tool_output: serde_json::Value,
+        timestamp: String,
+        is_replay: bool,
+    ) {
+        let existing = self.db.get_tool_execution(&tool_use_id).unwrap_or(None);
+        let Some(existing) = existing else { return };
+
+        if !existing.agent_id.is_empty() {
+            self.update_agent_activity(&existing.agent_id).await;
+        }
+
+        let id = tool_use_id.clone();
+        let output = tool_output.clone();
+        let ts = timestamp.clone();
+        let _ = self.spawn_db_op(move |db| {
+            let _ = db.update_tool_execution(
+                &id,
+                Some(&ToolExecutionStatus::Completed),
+                Some(&output),
+                Some(&ts),
+            );
+        }).await;
+
+        if !is_replay {
+            if let Ok(Some(updated)) = self.db.get_tool_execution(&tool_use_id) {
+                self.broadcast(&WSMessage::ToolCompleted { payload: updated })
                     .await;
-
-                    let log = LogEntry {
-                        id: Uuid::new_v4().to_string(),
-                        scan_id,
-                        agent_id: Some(agent_id),
-                        level: LogLevel::Info,
-                        message: format!("Agent spawned: {}", name),
-                        tool_name: None,
-                        timestamp,
-                        details: None,
-                    };
-                    let _ = self.db.save_log(&log);
-                    self.broadcast(&WSMessage::LogEntry { payload: log }).await;
-                }
             }
 
-            InternalEvent::AgentStopped {
-                session_id,
+            let log = LogEntry {
+                id: Uuid::new_v4().to_string(),
+                scan_id,
+                agent_id: Some(existing.agent_id),
+                level: LogLevel::Success,
+                message: format!("Tool completed: {}", tool_name),
+                tool_name: Some(tool_name),
                 timestamp,
-                ..
-            } => {
-                let agent_id = self
-                    .session_agent_map
-                    .read()
-                    .await
-                    .get(&session_id)
-                    .cloned();
+                details: None,
+            };
+            let l = log.clone();
+            self.spawn_db_op(move |db| { let _ = db.save_log(&l); });
+            self.broadcast(&WSMessage::LogEntry { payload: log }).await;
+        }
+    }
 
-                if let Some(agent_id) = agent_id {
-                    let _ = self.db.update_agent_status(
-                        &agent_id,
+    async fn on_vulnerability_found(
+        &self,
+        scan_id: String,
+        agent_id: String,
+        vulnerability: VulnerabilityInfo,
+        timestamp: String,
+        is_replay: bool,
+    ) {
+        let vuln = Vulnerability {
+            id: Uuid::new_v4().to_string(),
+            scan_id: scan_id.clone(),
+            agent_id: agent_id.clone(),
+            title: vulnerability.title.clone(),
+            severity: Severity::from_str(&vulnerability.severity),
+            description: vulnerability.description.clone(),
+            affected_url: vulnerability.affected_url.clone(),
+            proof_of_concept: vulnerability.proof_of_concept.clone(),
+            impact: vulnerability.impact.clone(),
+            remediation: vulnerability.remediation.clone(),
+            cvss: vulnerability.cvss,
+            references: vulnerability.references.clone(),
+            discovered_at: timestamp.clone(),
+        };
+
+        let v = vuln.clone();
+        let sid = scan_id.clone();
+        self.spawn_db_op(move |db| {
+            let _ = db.save_vulnerability(&v);
+            let count = db.get_vulns_by_scan(&sid).unwrap_or_default().len();
+            let _ = db.update_scan_findings(&sid, count as i64);
+        });
+
+        if !is_replay {
+            self.broadcast(&WSMessage::VulnerabilityFound {
+                payload: vuln.clone(),
+            })
+            .await;
+
+            let log = LogEntry {
+                id: Uuid::new_v4().to_string(),
+                scan_id,
+                agent_id: Some(agent_id),
+                level: LogLevel::Warning,
+                message: format!(
+                    "Vulnerability found: {} ({})",
+                    vuln.title,
+                    vuln.severity.as_str()
+                ),
+                tool_name: None,
+                timestamp,
+                details: None,
+            };
+            let l = log.clone();
+            self.spawn_db_op(move |db| { let _ = db.save_log(&l); });
+            self.broadcast(&WSMessage::LogEntry { payload: log }).await;
+        }
+    }
+
+    async fn on_scan_completed(
+        &self,
+        scan_id: String,
+        status: String,
+        timestamp: String,
+        is_replay: bool,
+    ) {
+        let id = scan_id.clone();
+        let ts = timestamp.clone();
+        let _ = self.spawn_db_op(move |db| {
+            let s = ScanStatus::from_str(&status);
+            let _ = db.update_scan_status(&id, &s, Some(&ts));
+        }).await;
+
+        if !is_replay {
+            if let Ok(Some(scan)) = self.db.get_scan(&scan_id) {
+                self.broadcast(&WSMessage::ScanUpdated {
+                    payload: ScanUpdatePayload {
+                        id: scan.id,
+                        status: Some(scan.status),
+                        completed_at: scan.completed_at,
+                        findings: Some(scan.findings),
+                    },
+                })
+                .await;
+            }
+        }
+
+        // Mark all running agents as completed
+        let scan_agents = self.db.get_agents_by_scan(&scan_id).unwrap_or_default();
+        for agent in &scan_agents {
+            if agent.status == AgentStatus::Running {
+                let aid = agent.id.clone();
+                let ts = timestamp.clone();
+                self.spawn_db_op(move |db| {
+                    let _ = db.update_agent_status(
+                        &aid,
                         &AgentStatus::Completed,
-                        Some(&timestamp),
+                        Some(&ts),
                     );
-                    if !is_replay {
-                        self.broadcast(&WSMessage::AgentStatusChanged {
-                            payload: AgentStatusPayload {
-                                id: agent_id.clone(),
-                                status: AgentStatus::Completed,
-                                finished_at: Some(timestamp),
-                            },
-                        })
-                        .await;
-                    }
-                    self.session_agent_map.write().await.remove(&session_id);
-                    self.agent_last_activity.write().await.remove(&agent_id);
-                }
-            }
-
-            InternalEvent::ToolStarted {
-                scan_id,
-                session_id,
-                tool_use_id,
-                tool_name,
-                tool_input,
-                timestamp,
-                ..
-            } => {
-                let mut agent_id = self
-                    .session_agent_map
-                    .read()
-                    .await
-                    .get(&session_id)
-                    .cloned()
-                    .unwrap_or_default();
-
-                if agent_id.is_empty() {
-                    // Try to find an agent without tools (heuristic from JS)
-                    let all_agents = self.db.get_agents_by_scan(&scan_id).unwrap_or_default();
-                    let all_tools = self.db.get_tools_by_scan(&scan_id).unwrap_or_default();
-
-                    let agents_without_tools: Vec<&Agent> = all_agents
-                        .iter()
-                        .filter(|a| {
-                            a.status == AgentStatus::Running
-                                && a.parent_id.is_some()
-                                && !all_tools.iter().any(|t| t.agent_id == a.id)
-                        })
-                        .collect();
-
-                    if !agents_without_tools.is_empty() {
-                        // Pick oldest
-                        let oldest = agents_without_tools
-                            .iter()
-                            .min_by_key(|a| &a.created_at)
-                            .unwrap();
-                        agent_id = oldest.id.clone();
-                        self.session_agent_map
-                            .write()
-                            .await
-                            .insert(session_id.clone(), agent_id.clone());
-                    } else {
-                        // Create or find root agent deterministically
-                        let deterministic_id = generate_root_agent_id(&session_id);
-
-                        if let Ok(Some(_)) = self.db.get_agent(&deterministic_id) {
-                            agent_id = deterministic_id;
-                            self.session_agent_map
-                                .write()
-                                .await
-                                .insert(session_id.clone(), agent_id.clone());
-                        } else {
-                            let root_agent = Agent {
-                                id: deterministic_id.clone(),
-                                scan_id: scan_id.clone(),
-                                name: "Strix Scanner".into(),
-                                parent_id: None,
-                                status: AgentStatus::Running,
-                                task: "Main security assessment".into(),
-                                created_at: timestamp.clone(),
-                                finished_at: None,
-                            };
-                            agent_id = deterministic_id;
-                            self.session_agent_map
-                                .write()
-                                .await
-                                .insert(session_id.clone(), agent_id.clone());
-                            let _ = self.db.save_agent(&root_agent);
-                            if !is_replay {
-                                self.broadcast(&WSMessage::AgentCreated {
-                                    payload: root_agent,
-                                })
-                                .await;
-                            }
-                        }
-                    }
-                }
-
-                self.update_agent_activity(&agent_id).await;
-
-                let tool_execution = ToolExecution {
-                    id: tool_use_id,
-                    scan_id: scan_id.clone(),
-                    agent_id: agent_id.clone(),
-                    session_id: session_id.clone(),
-                    tool_name: tool_name.clone(),
-                    tool_input,
-                    tool_output: None,
-                    status: ToolExecutionStatus::Running,
-                    started_at: timestamp.clone(),
-                    completed_at: None,
-                    duration: None,
-                };
-
-                let _ = self.db.save_tool_execution(&tool_execution);
+                });
                 if !is_replay {
-                    self.broadcast(&WSMessage::ToolStarted {
-                        payload: tool_execution,
+                    self.broadcast(&WSMessage::AgentStatusChanged {
+                        payload: AgentStatusPayload {
+                            id: agent.id.clone(),
+                            status: AgentStatus::Completed,
+                            finished_at: Some(timestamp.clone()),
+                        },
                     })
                     .await;
-
-                    let log = LogEntry {
-                        id: Uuid::new_v4().to_string(),
-                        scan_id,
-                        agent_id: Some(agent_id),
-                        level: LogLevel::Info,
-                        message: format!("Tool started: {}", tool_name),
-                        tool_name: Some(tool_name),
-                        timestamp,
-                        details: None,
-                    };
-                    let _ = self.db.save_log(&log);
-                    self.broadcast(&WSMessage::LogEntry { payload: log }).await;
+                }
+                self.agent_last_activity.write().await.remove(&agent.id);
+                // Remove from session map
+                let mut map = self.session_agent_map.write().await;
+                let key = map
+                    .iter()
+                    .find(|(_, v)| **v == agent.id)
+                    .map(|(k, _)| k.clone());
+                if let Some(key) = key {
+                    map.remove(&key);
                 }
             }
+        }
 
-            InternalEvent::ToolCompleted {
-                scan_id,
-                tool_use_id,
-                tool_name,
-                tool_output,
-                timestamp,
-                ..
-            } => {
-                let existing = self.db.get_tool_execution(&tool_use_id).unwrap_or(None);
-                if let Some(existing) = existing {
-                    if !existing.agent_id.is_empty() {
-                        self.update_agent_activity(&existing.agent_id).await;
-                    }
-
-                    let _ = self.db.update_tool_execution(
-                        &tool_use_id,
-                        Some(&ToolExecutionStatus::Completed),
-                        Some(&tool_output),
-                        Some(&timestamp),
-                    );
-
-                    if !is_replay {
-                        if let Ok(Some(updated)) = self.db.get_tool_execution(&tool_use_id) {
-                            self.broadcast(&WSMessage::ToolCompleted { payload: updated })
-                                .await;
-                        }
-
-                        let log = LogEntry {
-                            id: Uuid::new_v4().to_string(),
-                            scan_id,
-                            agent_id: Some(existing.agent_id),
-                            level: LogLevel::Success,
-                            message: format!("Tool completed: {}", tool_name),
-                            tool_name: Some(tool_name),
-                            timestamp,
-                            details: None,
-                        };
-                        let _ = self.db.save_log(&log);
-                        self.broadcast(&WSMessage::LogEntry { payload: log }).await;
-                    }
-                }
-            }
-
-            InternalEvent::VulnerabilityFound {
-                scan_id,
-                agent_id,
-                vulnerability,
-                timestamp,
-                ..
-            } => {
-                let vuln = Vulnerability {
-                    id: Uuid::new_v4().to_string(),
-                    scan_id: scan_id.clone(),
-                    agent_id: agent_id.clone(),
-                    title: vulnerability.title.clone(),
-                    severity: Severity::from_str(&vulnerability.severity),
-                    description: vulnerability.description.clone(),
-                    affected_url: vulnerability.affected_url.clone(),
-                    proof_of_concept: vulnerability.proof_of_concept.clone(),
-                    impact: vulnerability.impact.clone(),
-                    remediation: vulnerability.remediation.clone(),
-                    cvss: vulnerability.cvss,
-                    references: vulnerability.references.clone(),
-                    discovered_at: timestamp.clone(),
-                };
-
-                let _ = self.db.save_vulnerability(&vuln);
-
-                // Update scan finding count
-                let vulns = self.db.get_vulns_by_scan(&scan_id).unwrap_or_default();
-                let _ = self.db.update_scan_findings(&scan_id, vulns.len() as i64);
-
-                if !is_replay {
-                    self.broadcast(&WSMessage::VulnerabilityFound {
-                        payload: vuln.clone(),
-                    })
-                    .await;
-
-                    let log = LogEntry {
-                        id: Uuid::new_v4().to_string(),
-                        scan_id,
-                        agent_id: Some(agent_id),
-                        level: LogLevel::Warning,
-                        message: format!(
-                            "Vulnerability found: {} ({})",
-                            vuln.title,
-                            vuln.severity.as_str()
-                        ),
-                        tool_name: None,
-                        timestamp,
-                        details: None,
-                    };
-                    let _ = self.db.save_log(&log);
-                    self.broadcast(&WSMessage::LogEntry { payload: log }).await;
-                }
-            }
-
-            InternalEvent::ScanCompleted {
-                scan_id,
-                status,
-                timestamp,
-                ..
-            } => {
-                let scan_status = ScanStatus::from_str(&status);
-                let _ = self
-                    .db
-                    .update_scan_status(&scan_id, &scan_status, Some(&timestamp));
-
-                if !is_replay {
-                    if let Ok(Some(scan)) = self.db.get_scan(&scan_id) {
-                        self.broadcast(&WSMessage::ScanUpdated {
-                            payload: ScanUpdatePayload {
-                                id: scan.id,
-                                status: Some(scan.status),
-                                completed_at: scan.completed_at,
-                                findings: Some(scan.findings),
-                            },
-                        })
-                        .await;
-                    }
-                }
-
-                // Mark all running agents as completed
-                let scan_agents = self.db.get_agents_by_scan(&scan_id).unwrap_or_default();
-                for agent in &scan_agents {
-                    if agent.status == AgentStatus::Running {
-                        let _ = self.db.update_agent_status(
-                            &agent.id,
-                            &AgentStatus::Completed,
-                            Some(&timestamp),
-                        );
-                        if !is_replay {
-                            self.broadcast(&WSMessage::AgentStatusChanged {
-                                payload: AgentStatusPayload {
-                                    id: agent.id.clone(),
-                                    status: AgentStatus::Completed,
-                                    finished_at: Some(timestamp.clone()),
-                                },
-                            })
-                            .await;
-                        }
-                        self.agent_last_activity.write().await.remove(&agent.id);
-                        // Remove from session map
-                        let mut map = self.session_agent_map.write().await;
-                        let key = map
-                            .iter()
-                            .find(|(_, v)| **v == agent.id)
-                            .map(|(k, _)| k.clone());
-                        if let Some(key) = key {
-                            map.remove(&key);
-                        }
-                    }
-                }
+        // Clear events file if no more active scans
+        if self.scan_manager.get_active_scan_ids().is_empty() {
+            if let Some(receiver) = self.event_receiver.lock().unwrap().as_ref() {
+                receiver.clear_events();
+                tracing::info!("[WS] All scans completed, events file cleared");
             }
         }
     }
@@ -609,11 +693,12 @@ async fn handle_ws_connection(socket: WebSocket, state: Arc<WsState>) {
                             state.send_to(&client_id, &pong).await;
                         }
                         WSClientMessage::ClearAll => {
-                            // Note: CLEAR_ALL needs EventReceiver access.
-                            // We broadcast the empty state; the caller wires up clear_events separately.
                             let _ = state.db.clear_all();
                             state.session_agent_map.write().await.clear();
                             state.agent_last_activity.write().await.clear();
+                            if let Some(receiver) = state.event_receiver.lock().unwrap().as_ref() {
+                                receiver.clear_events();
+                            }
                             state
                                 .broadcast(&WSMessage::InitState {
                                     payload: InitStatePayload {
@@ -765,11 +850,15 @@ pub fn spawn_idle_checker(ws_state: Arc<WsState>) -> tokio::task::JoinHandle<()>
                         }
 
                         let finished_at = chrono::Utc::now().to_rfc3339();
-                        let _ = ws_state.db.update_agent_status(
-                            &agent_id,
-                            &AgentStatus::Completed,
-                            Some(&finished_at),
-                        );
+                        let aid = agent_id.clone();
+                        let ts = finished_at.clone();
+                        ws_state.spawn_db_op(move |db| {
+                            let _ = db.update_agent_status(
+                                &aid,
+                                &AgentStatus::Completed,
+                                Some(&ts),
+                            );
+                        });
 
                         // Remove from session map
                         {

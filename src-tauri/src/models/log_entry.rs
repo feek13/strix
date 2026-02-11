@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, strum::AsRefStr, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
 #[serde(rename_all = "camelCase")]
 pub enum LogLevel {
     Info,
@@ -11,26 +12,8 @@ pub enum LogLevel {
 }
 
 impl LogLevel {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Info => "info",
-            Self::Success => "success",
-            Self::Warning => "warning",
-            Self::Error => "error",
-            Self::Debug => "debug",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "info" => Self::Info,
-            "success" => Self::Success,
-            "warning" => Self::Warning,
-            "error" => Self::Error,
-            "debug" => Self::Debug,
-            _ => Self::Info,
-        }
-    }
+    pub fn as_str(&self) -> &str { self.as_ref() }
+    pub fn from_str(s: &str) -> Self { s.parse().unwrap_or(Self::Info) }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

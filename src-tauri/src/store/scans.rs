@@ -1,4 +1,4 @@
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 use super::AppDb;
 use crate::models::{Scan, ScanStatus, TargetType};
@@ -28,14 +28,14 @@ impl AppDb {
     pub fn get_scan(&self, id: &str) -> anyhow::Result<Option<Scan>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM scans WHERE id = ?1")?;
-        let result = stmt.query_row(params![id], |row| Ok(row_to_scan(row))).optional()?;
+        let result = stmt.query_row(params![id], row_to_scan).optional()?;
         Ok(result)
     }
 
     pub fn get_all_scans(&self) -> anyhow::Result<Vec<Scan>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM scans ORDER BY created_at DESC")?;
-        let scans = stmt.query_map([], |row| Ok(row_to_scan(row)))?.collect::<Result<Vec<_>, _>>()?;
+        let scans = stmt.query_map([], row_to_scan)?.collect::<Result<Vec<_>, _>>()?;
         Ok(scans)
     }
 
@@ -67,19 +67,17 @@ impl AppDb {
     }
 }
 
-use rusqlite::OptionalExtension;
-
-fn row_to_scan(row: &rusqlite::Row) -> Scan {
-    Scan {
-        id: row.get_unwrap("id"),
-        target: row.get_unwrap("target"),
-        target_type: TargetType::from_str(&row.get_unwrap::<_, String>("target_type")),
-        status: ScanStatus::from_str(&row.get_unwrap::<_, String>("status")),
-        mode: row.get_unwrap("mode"),
-        created_at: row.get_unwrap("created_at"),
-        started_at: row.get_unwrap("started_at"),
-        completed_at: row.get_unwrap("completed_at"),
-        findings: row.get_unwrap("findings"),
-        claude_session_id: row.get_unwrap("claude_session_id"),
-    }
+fn row_to_scan(row: &rusqlite::Row) -> rusqlite::Result<Scan> {
+    Ok(Scan {
+        id: row.get("id")?,
+        target: row.get("target")?,
+        target_type: TargetType::from_str(&row.get::<_, String>("target_type")?),
+        status: ScanStatus::from_str(&row.get::<_, String>("status")?),
+        mode: row.get("mode")?,
+        created_at: row.get("created_at")?,
+        started_at: row.get("started_at")?,
+        completed_at: row.get("completed_at")?,
+        findings: row.get("findings")?,
+        claude_session_id: row.get("claude_session_id")?,
+    })
 }

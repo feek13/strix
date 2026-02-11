@@ -39,11 +39,22 @@ impl AppDb {
         Ok(db)
     }
 
-    /// Returns `~/.strix-webui`
+    /// Returns the data directory for Strix.
+    /// - Desktop (macOS/Linux/Windows): `~/.strix-webui`
+    /// - Android: `/data/data/com.strix.security/files/.strix-webui`
     pub fn data_dir() -> PathBuf {
-        dirs::home_dir()
-            .expect("Could not determine home directory")
-            .join(".strix-webui")
+        if let Some(home) = dirs::home_dir() {
+            return home.join(".strix-webui");
+        }
+
+        // Fallback for Android where dirs::home_dir() returns None
+        #[cfg(target_os = "android")]
+        {
+            return PathBuf::from("/data/data/com.strix.security/files/.strix-webui");
+        }
+
+        #[cfg(not(target_os = "android"))]
+        panic!("Could not determine home directory");
     }
 
     fn init_tables(&self) -> anyhow::Result<()> {
@@ -148,6 +159,15 @@ impl AppDb {
             ",
         )?;
         Ok(())
+    }
+
+    /// Run a WAL checkpoint (TRUNCATE mode) to reclaim disk space.
+    pub fn checkpoint_wal(&self) {
+        let conn = self.conn.lock().unwrap();
+        match conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)") {
+            Ok(_) => tracing::debug!("[DB] WAL checkpoint completed"),
+            Err(e) => tracing::warn!("[DB] WAL checkpoint failed: {}", e),
+        }
     }
 
     fn run_migrations(&self) -> anyhow::Result<()> {

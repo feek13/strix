@@ -112,10 +112,12 @@ The Tauri app replaces the Node.js backend with a single Rust binary that embeds
 | `bridge/event_receiver.rs` | Watches `~/.strix-webui/events/events.jsonl` via `notify` + polling |
 | `store/db.rs` | `AppDb` wrapper: `Mutex<rusqlite::Connection>`, WAL mode, `~/.strix-webui/strix.db` |
 | `store/{scans,agents,tools,vulns,logs,chat}.rs` | CRUD for each entity |
-| `models/` | Rust structs matching TypeScript types (`#[serde(rename_all = "camelCase")]`) |
-| `reports/` | PDF (printpdf) and DOCX (docx-rs) generation |
+| `models/` | Rust structs matching TypeScript types (`#[serde(rename_all = "camelCase")]`). Includes `events.rs` (JSONL event structs) and `ws_messages.rs` (WebSocket protocol types) |
+| `reports/` | PDF (printpdf) and DOCX (docx-rs) generation. `pdf_writer.rs` has low-level PDF rendering helpers |
 | `hooks/bin/` | 4 standalone binaries registered with Claude Code |
+| `hooks/shared.rs` | `HookInput` struct, `read_stdin()`, output truncation — shared by all 4 hook binaries |
 | `hooks/install.rs` | Registers hooks in `~/.claude/settings.json` |
+| `utils/` | `errors.rs` (error message extraction), `events.rs` (event file path helpers) |
 
 **Hook binaries** — 4 separate executables that Claude Code invokes during scans:
 - `strix-hook-pre-tool-use` — Detects agent creation, logs tool starts, captures vulnerabilities
@@ -184,6 +186,7 @@ STRIX_LLM="anthropic/claude-sonnet-4-5"  # or openai/gpt-5 (for strix CLI)
 LLM_API_KEY="your-key"
 LLM_API_BASE="..."                        # For local models (Ollama, LMStudio)
 PERPLEXITY_API_KEY="..."                  # Enables web search tool
+RUST_LOG="strix=debug,tower_http=info"   # Tauri backend tracing (default: strix=info)
 ```
 
 ## Gotchas

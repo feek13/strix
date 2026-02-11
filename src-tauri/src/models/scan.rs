@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, strum::AsRefStr, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
 #[serde(rename_all = "camelCase")]
 pub enum ScanStatus {
     Pending,
@@ -11,29 +12,12 @@ pub enum ScanStatus {
 }
 
 impl ScanStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Pending => "pending",
-            Self::Running => "running",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-            Self::Stopped => "stopped",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "pending" => Self::Pending,
-            "running" => Self::Running,
-            "completed" => Self::Completed,
-            "failed" => Self::Failed,
-            "stopped" => Self::Stopped,
-            _ => Self::Pending,
-        }
-    }
+    pub fn as_str(&self) -> &str { self.as_ref() }
+    pub fn from_str(s: &str) -> Self { s.parse().unwrap_or(Self::Pending) }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, strum::AsRefStr, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
 #[serde(rename_all = "camelCase")]
 pub enum TargetType {
     Url,
@@ -42,22 +26,8 @@ pub enum TargetType {
 }
 
 impl TargetType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Url => "url",
-            Self::Github => "github",
-            Self::Local => "local",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "url" => Self::Url,
-            "github" => Self::Github,
-            "local" => Self::Local,
-            _ => Self::Url,
-        }
-    }
+    pub fn as_str(&self) -> &str { self.as_ref() }
+    pub fn from_str(s: &str) -> Self { s.parse().unwrap_or(Self::Url) }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

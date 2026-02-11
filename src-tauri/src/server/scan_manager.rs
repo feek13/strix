@@ -337,16 +337,17 @@ impl ScanManager {
                 .update_scan_status(&scan_id2, &scan_status, Some(&completed_at))
                 .ok();
 
+            // Remove from active_scans BEFORE writing event so that
+            // the event handler sees an empty active list.
+            if let Some(entry) = manager.active_scans.lock().unwrap().remove(&scan_id2) {
+                entry.timeout_handle.abort();
+            }
+
             write_event(&InternalEvent::ScanCompleted {
                 timestamp: completed_at,
                 scan_id: scan_id2.clone(),
                 status: "completed".to_string(),
             });
-
-            // Cleanup
-            if let Some(entry) = manager.active_scans.lock().unwrap().remove(&scan_id2) {
-                entry.timeout_handle.abort();
-            }
 
             tracing::info!(
                 "[Scan {}] Process exited with code {} → completed",

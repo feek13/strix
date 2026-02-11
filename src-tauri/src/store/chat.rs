@@ -26,14 +26,14 @@ impl AppDb {
     pub fn get_chat_session(&self, id: &str, user_id: &str) -> anyhow::Result<Option<ChatSession>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM chat_sessions WHERE id = ?1 AND user_id = ?2")?;
-        let result = stmt.query_row(params![id, user_id], |row| Ok(row_to_chat_session(row))).optional()?;
+        let result = stmt.query_row(params![id, user_id], row_to_chat_session).optional()?;
         Ok(result)
     }
 
     pub fn get_chat_sessions_by_user(&self, user_id: &str) -> anyhow::Result<Vec<ChatSession>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM chat_sessions WHERE user_id = ?1 ORDER BY updated_at DESC")?;
-        let sessions = stmt.query_map(params![user_id], |row| Ok(row_to_chat_session(row)))?.collect::<Result<Vec<_>, _>>()?;
+        let sessions = stmt.query_map(params![user_id], row_to_chat_session)?.collect::<Result<Vec<_>, _>>()?;
         Ok(sessions)
     }
 
@@ -73,7 +73,7 @@ impl AppDb {
     pub fn get_chat_session_by_id(&self, id: &str) -> anyhow::Result<Option<ChatSession>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM chat_sessions WHERE id = ?1")?;
-        let result = stmt.query_row(params![id], |row| Ok(row_to_chat_session(row))).optional()?;
+        let result = stmt.query_row(params![id], row_to_chat_session).optional()?;
         Ok(result)
     }
 
@@ -108,34 +108,34 @@ impl AppDb {
              WHERE cm.session_id = ?1 AND cs.user_id = ?2
              ORDER BY cm.created_at"
         )?;
-        let messages = stmt.query_map(params![session_id, user_id], |row| Ok(row_to_chat_message(row)))?.collect::<Result<Vec<_>, _>>()?;
+        let messages = stmt.query_map(params![session_id, user_id], row_to_chat_message)?.collect::<Result<Vec<_>, _>>()?;
         Ok(messages)
     }
 }
 
-fn row_to_chat_session(row: &rusqlite::Row) -> ChatSession {
-    ChatSession {
-        id: row.get_unwrap("id"),
-        user_id: row.get_unwrap("user_id"),
-        scan_id: row.get_unwrap("scan_id"),
-        claude_session_id: row.get_unwrap("claude_session_id"),
-        claude_session_mode: row.get_unwrap("claude_session_mode"),
-        cwd: row.get_unwrap("cwd"),
-        title: row.get_unwrap("title"),
-        created_at: row.get_unwrap("created_at"),
-        updated_at: row.get_unwrap("updated_at"),
-    }
+fn row_to_chat_session(row: &rusqlite::Row) -> rusqlite::Result<ChatSession> {
+    Ok(ChatSession {
+        id: row.get("id")?,
+        user_id: row.get("user_id")?,
+        scan_id: row.get("scan_id")?,
+        claude_session_id: row.get("claude_session_id")?,
+        claude_session_mode: row.get("claude_session_mode")?,
+        cwd: row.get("cwd")?,
+        title: row.get("title")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
 }
 
-fn row_to_chat_message(row: &rusqlite::Row) -> ChatMessageRecord {
-    let is_execute_int: i32 = row.get_unwrap("is_execute");
-    ChatMessageRecord {
-        id: row.get_unwrap("id"),
-        session_id: row.get_unwrap("session_id"),
-        role: row.get_unwrap("role"),
-        content: row.get_unwrap("content"),
+fn row_to_chat_message(row: &rusqlite::Row) -> rusqlite::Result<ChatMessageRecord> {
+    let is_execute_int: i32 = row.get("is_execute")?;
+    Ok(ChatMessageRecord {
+        id: row.get("id")?,
+        session_id: row.get("session_id")?,
+        role: row.get("role")?,
+        content: row.get("content")?,
         is_execute: if is_execute_int == 1 { Some(true) } else { None },
-        blocks: row.get_unwrap("blocks"),
-        created_at: row.get_unwrap("created_at"),
-    }
+        blocks: row.get("blocks")?,
+        created_at: row.get("created_at")?,
+    })
 }

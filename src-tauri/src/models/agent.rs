@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, strum::AsRefStr, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
 #[serde(rename_all = "camelCase")]
 pub enum AgentStatus {
     Running,
@@ -11,26 +12,8 @@ pub enum AgentStatus {
 }
 
 impl AgentStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Running => "running",
-            Self::Waiting => "waiting",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-            Self::Stopped => "stopped",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "running" => Self::Running,
-            "waiting" => Self::Waiting,
-            "completed" => Self::Completed,
-            "failed" => Self::Failed,
-            "stopped" => Self::Stopped,
-            _ => Self::Running,
-        }
-    }
+    pub fn as_str(&self) -> &str { self.as_ref() }
+    pub fn from_str(s: &str) -> Self { s.parse().unwrap_or(Self::Running) }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

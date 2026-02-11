@@ -31,26 +31,26 @@ impl AppDb {
     pub fn get_vulns_by_scan(&self, scan_id: &str) -> anyhow::Result<Vec<Vulnerability>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM vulnerabilities WHERE scan_id = ?1 ORDER BY discovered_at")?;
-        let vulns = stmt.query_map(params![scan_id], |row| Ok(row_to_vulnerability(row)))?.collect::<Result<Vec<_>, _>>()?;
+        let vulns = stmt.query_map(params![scan_id], row_to_vulnerability)?.collect::<Result<Vec<_>, _>>()?;
         Ok(vulns)
     }
 }
 
-fn row_to_vulnerability(row: &rusqlite::Row) -> Vulnerability {
-    let refs_json: Option<String> = row.get_unwrap("references_json");
-    Vulnerability {
-        id: row.get_unwrap("id"),
-        scan_id: row.get_unwrap("scan_id"),
-        agent_id: row.get_unwrap("agent_id"),
-        title: row.get_unwrap("title"),
-        severity: Severity::from_str(&row.get_unwrap::<_, String>("severity")),
-        description: row.get_unwrap("description"),
-        affected_url: row.get_unwrap("affected_url"),
-        proof_of_concept: row.get_unwrap("proof_of_concept"),
-        impact: row.get_unwrap("impact"),
-        remediation: row.get_unwrap("remediation"),
-        cvss: row.get_unwrap("cvss"),
+fn row_to_vulnerability(row: &rusqlite::Row) -> rusqlite::Result<Vulnerability> {
+    let refs_json: Option<String> = row.get("references_json")?;
+    Ok(Vulnerability {
+        id: row.get("id")?,
+        scan_id: row.get("scan_id")?,
+        agent_id: row.get("agent_id")?,
+        title: row.get("title")?,
+        severity: Severity::from_str(&row.get::<_, String>("severity")?),
+        description: row.get("description")?,
+        affected_url: row.get("affected_url")?,
+        proof_of_concept: row.get("proof_of_concept")?,
+        impact: row.get("impact")?,
+        remediation: row.get("remediation")?,
+        cvss: row.get("cvss")?,
         references: refs_json.and_then(|s| serde_json::from_str(&s).ok()),
-        discovered_at: row.get_unwrap("discovered_at"),
-    }
+        discovered_at: row.get("discovered_at")?,
+    })
 }

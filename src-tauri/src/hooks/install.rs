@@ -53,9 +53,16 @@ pub fn install_hooks(hook_dir: &std::path::Path) -> anyhow::Result<()> {
                     let hooks = entry.get("hooks").and_then(|h| h.as_array());
                     !hooks
                         .map(|h| h.iter().any(|cmd| {
-                            cmd.as_str()
+                            // Check plain string format (legacy)
+                            let is_str = cmd.as_str()
                                 .map(|s| s.contains("strix-hook-"))
-                                .unwrap_or(false)
+                                .unwrap_or(false);
+                            // Check object format {"type":"command","command":"..."}
+                            let is_obj = cmd.get("command")
+                                .and_then(|c| c.as_str())
+                                .map(|s| s.contains("strix-hook-"))
+                                .unwrap_or(false);
+                            is_str || is_obj
                         }))
                         .unwrap_or(false)
                 })
@@ -65,10 +72,10 @@ pub fn install_hooks(hook_dir: &std::path::Path) -> anyhow::Result<()> {
             Vec::new()
         };
 
-        // Add new hook
+        // Add new hook (object format required by Claude Code)
         entries.push(json!({
             "matcher": "",
-            "hooks": [command]
+            "hooks": [{"type": "command", "command": command}]
         }));
 
         settings["hooks"][*hook_type] = Value::Array(entries);

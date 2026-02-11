@@ -26,21 +26,21 @@ impl AppDb {
     pub fn get_agent(&self, id: &str) -> anyhow::Result<Option<Agent>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM agents WHERE id = ?1")?;
-        let result = stmt.query_row(params![id], |row| Ok(row_to_agent(row))).optional()?;
+        let result = stmt.query_row(params![id], row_to_agent).optional()?;
         Ok(result)
     }
 
     pub fn get_agents_by_scan(&self, scan_id: &str) -> anyhow::Result<Vec<Agent>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM agents WHERE scan_id = ?1 ORDER BY created_at")?;
-        let agents = stmt.query_map(params![scan_id], |row| Ok(row_to_agent(row)))?.collect::<Result<Vec<_>, _>>()?;
+        let agents = stmt.query_map(params![scan_id], row_to_agent)?.collect::<Result<Vec<_>, _>>()?;
         Ok(agents)
     }
 
     pub fn get_all_agents(&self) -> anyhow::Result<Vec<Agent>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM agents ORDER BY created_at")?;
-        let agents = stmt.query_map([], |row| Ok(row_to_agent(row)))?.collect::<Result<Vec<_>, _>>()?;
+        let agents = stmt.query_map([], row_to_agent)?.collect::<Result<Vec<_>, _>>()?;
         Ok(agents)
     }
 
@@ -54,15 +54,15 @@ impl AppDb {
     }
 }
 
-fn row_to_agent(row: &rusqlite::Row) -> Agent {
-    Agent {
-        id: row.get_unwrap("id"),
-        scan_id: row.get_unwrap("scan_id"),
-        name: row.get_unwrap("name"),
-        parent_id: row.get_unwrap("parent_id"),
-        status: AgentStatus::from_str(&row.get_unwrap::<_, String>("status")),
-        task: row.get_unwrap("task"),
-        created_at: row.get_unwrap("created_at"),
-        finished_at: row.get_unwrap("finished_at"),
-    }
+fn row_to_agent(row: &rusqlite::Row) -> rusqlite::Result<Agent> {
+    Ok(Agent {
+        id: row.get("id")?,
+        scan_id: row.get("scan_id")?,
+        name: row.get("name")?,
+        parent_id: row.get("parent_id")?,
+        status: AgentStatus::from_str(&row.get::<_, String>("status")?),
+        task: row.get("task")?,
+        created_at: row.get("created_at")?,
+        finished_at: row.get("finished_at")?,
+    })
 }
