@@ -4,6 +4,8 @@ import remarkGfm from "remark-gfm";
 import { X, Download, Loader2, FileText, FileType, FileDown } from "lucide-react";
 import clsx from "clsx";
 import * as chatApi from "../lib/chatApi";
+import { IS_TAURI } from "../lib/config";
+import { getUserId } from "../lib/userId";
 
 type TabId = "markdown" | "pdf" | "docx";
 
@@ -141,7 +143,23 @@ export default function ExportPreviewModal({
     if (tab === "docx" && !docxBlob && !docxLoading) fetchDocx();
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
+    // Tauri mode: use native save dialog (Rust generates PDF/DOCX server-side)
+    if (IS_TAURI && window.__TAURI_INTERNALS__) {
+      try {
+        await window.__TAURI_INTERNALS__.invoke("save_chat_export", {
+          sessionId,
+          format: activeTab,
+          userId: getUserId(),
+          markdownContent: activeTab === "markdown" ? markdownContent : null,
+        });
+      } catch (e) {
+        console.error("Export failed:", e);
+      }
+      return;
+    }
+
+    // Browser mode: download via blob URL
     const slug = sessionTitle.replace(/[^a-zA-Z0-9]+/g, "-").slice(0, 40).toLowerCase();
     if (activeTab === "markdown") {
       const blob = new Blob([markdownContent], { type: "text/markdown" });
@@ -165,6 +183,7 @@ export default function ExportPreviewModal({
   ];
 
   const canDownload =
+    IS_TAURI ||
     (activeTab === "markdown") ||
     (activeTab === "pdf" && !!pdfBlobUrl) ||
     (activeTab === "docx" && !!docxBlob);
@@ -209,9 +228,9 @@ export default function ExportPreviewModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden px-5 py-3 min-h-0">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-3 min-h-0">
           {activeTab === "markdown" && (
-            <div className="h-full overflow-y-auto bg-strix-bg border border-strix-border-subtle rounded-lg p-5">
+            <div className="bg-strix-bg border border-strix-border-subtle rounded-lg p-5">
               <PreviewMarkdown content={markdownContent} />
             </div>
           )}
@@ -238,15 +257,15 @@ export default function ExportPreviewModal({
           )}
 
           {activeTab === "docx" && (
-            <div className="h-full overflow-y-auto bg-strix-bg border border-strix-border-subtle rounded-lg p-5">
+            <div className="bg-strix-bg border border-strix-border-subtle rounded-lg p-5">
               {docxLoading && (
-                <div className="flex items-center justify-center h-full gap-2 text-sm text-strix-text-muted">
+                <div className="flex items-center justify-center py-12 gap-2 text-sm text-strix-text-muted">
                   <Loader2 size={16} className="animate-spin" />
                   Generating DOCX...
                 </div>
               )}
               {docxError && (
-                <div className="flex items-center justify-center h-full text-sm text-severity-high">{docxError}</div>
+                <div className="flex items-center justify-center py-12 text-sm text-severity-high">{docxError}</div>
               )}
               {!docxLoading && !docxError && (
                 <>

@@ -44,6 +44,189 @@ fn open_external_url(url: String) {
     let _ = open::that(&url);
 }
 
+/// Tauri command: generate chat export content and show a native save dialog.
+///
+/// For PDF/DOCX the Rust backend reads from its own DB and generates the bytes.
+/// For Markdown the frontend passes the text string directly.
+/// Returns `true` if the file was saved, `false` if the user cancelled.
+#[tauri::command]
+async fn save_chat_export(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BackendState>,
+    session_id: String,
+    format: String,
+    user_id: String,
+    markdown_content: Option<String>,
+) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let db = state.app_state.db.clone();
+
+    // Helper: fetch session + messages from DB (runs on blocking thread)
+    let fetch_session = |db: AppDb, sid: String, uid: String| async move {
+        tokio::task::spawn_blocking(move || {
+            let session = db
+                .get_chat_session(&sid, &uid)?
+                .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+            let messages = db.get_chat_messages(&sid, &uid)?;
+            Ok::<_, anyhow::Error>((session, messages))
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+    };
+
+    // Generate content bytes + filename metadata
+    let (bytes, file_name, filter_name, filter_ext): (Vec<u8>, String, &str, &str) =
+        match format.as_str() {
+            "pdf" => {
+                let (session, messages) =
+                    fetch_session(db.clone(), session_id.clone(), user_id.clone()).await?;
+                let bytes = crate::reports::chat_pdf_generator::generate_chat_pdf(
+                    &session, &messages,
+                );
+                let slug = slugify(&session.title);
+                (bytes, format!("chat-{slug}.pdf"), "PDF Files", "pdf")
+            }
+            "docx" => {
+                let (session, messages) =
+                    fetch_session(db.clone(), session_id.clone(), user_id.clone()).await?;
+                let bytes = crate::reports::chat_docx_generator::generate_chat_docx(
+                    &session, &messages,
+                )
+                .map_err(|e| format!("DOCX generation failed: {e:?}"))?;
+                let slug = slugify(&session.title);
+                (bytes, format!("chat-{slug}.docx"), "Word Documents", "docx")
+            }
+            "markdown" => {
+                let content = markdown_content
+                    .ok_or_else(|| "No markdown content provided".to_string())?;
+                let db2 = db.clone();
+                let sid = session_id.clone();
+                let uid = user_id.clone();
+                let title = tokio::task::spawn_blocking(move || {
+                    db2.get_chat_session(&sid, &uid)
+                        .ok()
+                        .flatten()
+                        .map(|s| s.title)
+                        .unwrap_or_else(|| "export".to_string())
+                })
+                .await
+                .map_err(|e| e.to_string())?;
+                let slug = slugify(&title);
+                (
+                    content.into_bytes(),
+                    format!("chat-{slug}.md"),
+                    "Markdown Files",
+                    "md",
+                )
+            }
+            other => return Err(format!("Unsupported format: {other}")),
+        };
+
+    // Show native save dialog (blocking call, so wrap in spawn_blocking)
+    let dialog = app.dialog().clone();
+    let fname = file_name.clone();
+    let fn_display = filter_name.to_string();
+    let fe = filter_ext.to_string();
+
+    let path = tokio::task::spawn_blocking(move || {
+        dialog
+            .file()
+            .set_file_name(&fname)
+            .add_filter(&fn_display, &[&fe])
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match path {
+        Some(file_path) => {
+            let p = file_path
+                .as_path()
+                .ok_or_else(|| "Invalid file path".to_string())?;
+            std::fs::write(p, &bytes)
+                .map_err(|e| format!("Failed to write file: {e}"))?;
+            Ok(true)
+        }
+        None => Ok(false), // User cancelled
+    }
+}
+
+/// Tauri command: generate scan report PDF and show a native save dialog.
+///
+/// Reads scan + vulns + agents + tools from DB, generates PDF bytes, then
+/// shows the OS file-save dialog. Returns `true` if saved, `false` if cancelled.
+#[tauri::command]
+async fn save_scan_report(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BackendState>,
+    scan_id: String,
+) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let db = state.app_state.db.clone();
+    let sid = scan_id.clone();
+
+    // Fetch scan data on blocking thread (rusqlite is sync)
+    let (scan, vulns, agents, tools) = tokio::task::spawn_blocking(move || {
+        let scan = db
+            .get_scan(&sid)
+            .map_err(|e| format!("DB error: {e}"))?
+            .ok_or_else(|| format!("Scan not found: {sid}"))?;
+        let vulns = db.get_vulns_by_scan(&sid).unwrap_or_default();
+        let agents = db.get_agents_by_scan(&sid).unwrap_or_default();
+        let tools = db.get_tools_by_scan(&sid).unwrap_or_default();
+        Ok::<_, String>((scan, vulns, agents, tools))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e: String| e)?;
+
+    // Generate PDF bytes
+    let bytes = crate::reports::pdf_generator::generate_scan_pdf(&scan, &vulns, &agents, &tools);
+
+    let short_id = &scan_id[..scan_id.len().min(8)];
+    let file_name = format!("strix-report-{short_id}.pdf");
+
+    // Show native save dialog
+    let dialog = app.dialog().clone();
+    let fname = file_name.clone();
+
+    let path = tokio::task::spawn_blocking(move || {
+        dialog
+            .file()
+            .set_file_name(&fname)
+            .add_filter("PDF Files", &["pdf"])
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match path {
+        Some(file_path) => {
+            let p = file_path
+                .as_path()
+                .ok_or_else(|| "Invalid file path".to_string())?;
+            std::fs::write(p, &bytes)
+                .map_err(|e| format!("Failed to write file: {e}"))?;
+            Ok(true)
+        }
+        None => Ok(false), // User cancelled
+    }
+}
+
+/// Slugify a string for use in filenames.
+fn slugify(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .chars()
+        .take(40)
+        .collect()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize tracing (logs to stdout)
@@ -56,7 +239,8 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_app_version, open_external_url])
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![get_app_version, open_external_url, save_chat_export, save_scan_report])
         .setup(|app| {
             let app_handle = app.handle().clone();
 

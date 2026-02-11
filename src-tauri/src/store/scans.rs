@@ -65,6 +65,17 @@ impl AppDb {
         )?;
         Ok(())
     }
+
+    /// Delete a scan and all related records (agents, tools, vulns, logs).
+    pub fn delete_scan(&self, id: &str) -> anyhow::Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM logs WHERE scan_id = ?1", params![id])?;
+        conn.execute("DELETE FROM vulnerabilities WHERE scan_id = ?1", params![id])?;
+        conn.execute("DELETE FROM tool_executions WHERE scan_id = ?1", params![id])?;
+        conn.execute("DELETE FROM agents WHERE scan_id = ?1", params![id])?;
+        let deleted = conn.execute("DELETE FROM scans WHERE id = ?1", params![id])?;
+        Ok(deleted > 0)
+    }
 }
 
 fn row_to_scan(row: &rusqlite::Row) -> rusqlite::Result<Scan> {

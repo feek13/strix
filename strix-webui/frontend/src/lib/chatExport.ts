@@ -1,3 +1,5 @@
+import { parseReportContext } from "./chatUtils";
+
 interface ToolBlock {
   name: string;
   status: string;
@@ -74,7 +76,32 @@ export function generateChatMarkdown(
 
     // For messages with blocks (execute mode), use blocks only to avoid
     // duplicating text (content is a concatenation of all text blocks)
-    if (hasBlocks) {
+    if (msg.role === "user" && msg.content) {
+      const { context, question } = parseReportContext(msg.content);
+      if (context) {
+        lines.push("> **Report Context**");
+        lines.push(">");
+        const formatted = context
+          .replace(/(Affected Endpoint|Description|Proof of Concept|Impact|Steps to Reproduce|Remediation|False Positive Ruling|Negative test)/g, '\n\n**$1**')
+          .trim();
+        for (const line of formatted.split('\n')) {
+          lines.push(line ? `> ${line}` : ">");
+        }
+        lines.push("");
+        lines.push(normalizeContent(question));
+        lines.push("");
+      } else if (hasBlocks) {
+        for (const block of msg.blocks!) {
+          if (block.type === "text" && block.text) {
+            lines.push(normalizeContent(block.text));
+            lines.push("");
+          }
+        }
+      } else {
+        lines.push(normalizeContent(msg.content));
+        lines.push("");
+      }
+    } else if (hasBlocks) {
       for (const block of msg.blocks!) {
         if (block.type === "text" && block.text) {
           lines.push(normalizeContent(block.text));

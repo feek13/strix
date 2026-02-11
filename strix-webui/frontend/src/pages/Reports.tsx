@@ -8,7 +8,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import type { Vulnerability, Scan } from "../types";
 import { SEVERITY_TEXT, SEVERITY_CARD_BG } from "../lib/severityStyles";
 import { ChatMarkdown } from "../components/Chat/ChatMarkdown";
-import { API_BASE_URL } from "../lib/config";
+import { API_BASE_URL, IS_TAURI } from "../lib/config";
 
 interface ReportPreview {
   scan: Scan;
@@ -59,6 +59,12 @@ export default function Reports() {
     if (!selectedScanId) return;
     setGenerating(true);
     try {
+      if (IS_TAURI && window.__TAURI_INTERNALS__) {
+        await window.__TAURI_INTERNALS__.invoke("save_scan_report", {
+          scanId: selectedScanId,
+        });
+        return;
+      }
       const res = await fetch(`${API_BASE_URL}/api/scans/${selectedScanId}/report`);
       if (res.ok) {
         const blob = await res.blob();
@@ -110,7 +116,7 @@ export default function Reports() {
   );
 
   const previewContent = (
-    <div className="flex-1">
+    <div className="flex-1 min-w-0">
       {!selectedScanId && !isMobile && (
         <div className="flex flex-col items-center justify-center h-64 text-strix-text-muted">
           <FileText size={40} className="mb-3 opacity-50" />

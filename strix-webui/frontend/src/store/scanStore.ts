@@ -8,6 +8,7 @@ interface ScanStore {
   updateScan: (updates: Partial<Scan> & { id: string }) => void;
   setScans: (scans: Scan[]) => void;
   addScan: (scan: Scan) => void;
+  removeScan: (id: string) => void;
 }
 
 export const useScanStore = create<ScanStore>((set) => ({
@@ -29,4 +30,10 @@ export const useScanStore = create<ScanStore>((set) => ({
 
   addScan: (scan) =>
     set((state) => ({ scans: [scan, ...state.scans], activeScan: scan })),
+
+  removeScan: (id) =>
+    set((state) => ({
+      scans: state.scans.filter((s) => s.id !== id),
+      activeScan: state.activeScan?.id === id ? null : state.activeScan,
+    })),
 }));

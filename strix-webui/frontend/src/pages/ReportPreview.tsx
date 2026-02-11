@@ -11,7 +11,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import type { Scan, Vulnerability, Agent, ToolExecution, ChatSession } from "../types";
 import type { ToolBlock, StreamBlock, ChatMessage } from "../types/chat";
 import * as chatApi from "../lib/chatApi";
-import { API_BASE_URL } from "../lib/config";
+import { API_BASE_URL, IS_TAURI } from "../lib/config";
 import { parseReportContext } from "../lib/chatUtils";
 import { formatRelativeTime, formatDuration } from "../lib/dateUtils";
 import { useTypewriter } from "../hooks/useTypewriter";
@@ -504,6 +504,12 @@ export default function ReportPreview() {
     if (!id) return;
     setGenerating(true);
     try {
+      if (IS_TAURI && window.__TAURI_INTERNALS__) {
+        await window.__TAURI_INTERNALS__.invoke("save_scan_report", {
+          scanId: id,
+        });
+        return;
+      }
       const res = await fetch(`${API_BASE_URL}/api/scans/${id}/report`);
       if (res.ok) {
         const blob = await res.blob();
@@ -569,12 +575,12 @@ export default function ReportPreview() {
       </div>
 
       {/* Body */}
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex min-h-0 min-w-0">
         {/* Report Content */}
         <div
           ref={reportRef}
           onMouseUp={handleMouseUp}
-          className="flex-1 overflow-y-auto select-text"
+          className="flex-1 overflow-y-auto select-text min-w-0"
         >
           <div className="max-w-4xl mx-auto p-4 md:p-8 overflow-x-hidden">
           {/* Title */}

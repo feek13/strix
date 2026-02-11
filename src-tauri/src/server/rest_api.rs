@@ -61,6 +61,7 @@ pub fn create_rest_router(state: Arc<AppState>) -> Router {
         .route("/api/scans", post(create_scan).get(list_scans))
         .route("/api/scans/start", post(start_scan_sse))
         .route("/api/scans/{id}", get(get_scan).delete(stop_scan))
+        .route("/api/scans/{id}/history", delete(delete_scan_history))
         .route("/api/scans/{id}/resume", post(resume_scan))
         .route("/api/scans/{id}/report/preview", get(report_preview))
         // Tools
@@ -383,6 +384,43 @@ async fn stop_scan(State(state): State<Arc<AppState>>, Path(id): Path<String>) -
             Json(json!({"error": "Active scan not found"})),
         )
             .into_response()
+    }
+}
+
+/// DELETE /api/scans/:id/history — Permanently delete a scan and all related data.
+async fn delete_scan_history(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    let db = state.db.clone();
+    let scan_id = id.clone();
+
+    // Prevent deleting a running scan
+    if state.scan_manager.get_active_scan_ids().contains(&id) {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({"error": "Cannot delete a running scan. Stop it first."})),
+        )
+            .into_response();
+    }
+
+    match tokio::task::spawn_blocking(move || db.delete_scan(&scan_id)).await {
+        Ok(Ok(true)) => Json(json!({"message": "Scan deleted"})).into_response(),
+        Ok(Ok(false)) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Scan not found"})),
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Database error: {e}")})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Task error: {e}")})),
+        )
+            .into_response(),
     }
 }
 

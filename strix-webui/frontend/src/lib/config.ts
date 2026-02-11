@@ -10,7 +10,9 @@
 declare global {
   interface Window {
     __TAURI__?: unknown;
-    __TAURI_INTERNALS__?: unknown;
+    __TAURI_INTERNALS__?: {
+      invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+    };
   }
 }
 

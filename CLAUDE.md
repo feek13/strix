@@ -45,6 +45,9 @@ cargo tauri ios dev "iPhone 17 Pro" --no-watch
 # Build production macOS app (.app + .dmg)
 cargo tauri build
 
+# Run Rust tests (uses in-memory SQLite)
+cd src-tauri && cargo test
+
 # Initialize iOS project (first time only)
 cargo tauri ios init
 ```
@@ -127,6 +130,36 @@ The Tauri app replaces the Node.js backend with a single Rust binary that embeds
 
 All hooks: read `HookInput` from stdin → write event to `events.jsonl` → print `{"continue":true}`.
 
+**Tauri commands** — 4 IPC commands exposed to the frontend via `#[tauri::command]`:
+- `get_app_version()` — Returns version from Cargo.toml
+- `open_external_url(url)` — Opens URL in default browser
+- `save_chat_export(session_id, format, user_id, markdown_content?)` — Native save dialog for PDF/DOCX/Markdown
+- `save_scan_report(scan_id)` — Native save dialog for scan PDF report
+
+**Scan mode limits** (configured in `scan_manager.rs`):
+| Mode | Max turns | Timeout |
+|------|-----------|---------|
+| `deep` | 500 | 120 min |
+| `redteam` | 400 | 90 min |
+| `recon` | 100 | 15 min |
+| default | 200 | 30 min |
+
+**Startup housekeeping** (`lib.rs`):
+- WAL checkpoint timer runs every 1 hour to reclaim disk space
+- Clears stale `events.jsonl` if no scans are running
+- Deletes `content/*.json` files older than 30 days
+- Auto-installs hooks if hook binaries exist next to the main executable
+
+### Data Locations
+
+| Platform | Path |
+|----------|------|
+| macOS/Linux | `~/.strix-webui/` |
+| Windows | `~/.strix-webui/` |
+| Android | `/data/data/com.strix.security/files/.strix-webui` |
+
+Within the data directory: `strix.db` (SQLite, WAL mode), `events/events.jsonl` (append-only), `events/.cursor` (last read position), `content/{uuid}.json` (large tool outputs >10KB).
+
 ### Data Flow
 
 ```
@@ -160,7 +193,7 @@ server.py (tool definitions) → tools/*.py (implementation) → HTTP → contai
 
 - Commit messages: conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`), optionally scoped (`feat(tauri):`, `feat(webui):`, `fix(mcp):`)
 - Branch naming: `feature/description`, `fix/description`
-- Rust: `#[serde(rename_all = "camelCase")]` on all models to match frontend JSON. Use `spawn_blocking` for all rusqlite calls.
+- Rust: `#[serde(rename_all = "camelCase")]` on all models to match frontend JSON. Use `spawn_blocking` for all rusqlite calls. Use `anyhow::Result` for fallible operations; never panic in production paths.
 - Python: 100-char line limit, type hints on all functions, ruff + mypy
 - TypeScript (webui): strict mode, shared types imported via `@strix-webui/shared`
 - Release tags: `app-v0.1.0` (Tauri app → GitHub Release), `mcp-v0.2.0` (MCP server → PyPI + Docker Hub), `plugin-v1.0.0` (plugin → GitHub Release)
@@ -199,4 +232,5 @@ RUST_LOG="strix=debug,tower_http=info"   # Tauri backend tracing (default: strix
 - **Tauri iOS**: Xcode's shell doesn't load `~/.zshrc`. The `project.pbxproj` build script must have `export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"` prepended. If `cargo tauri ios init` regenerates the Xcode project, this fix must be reapplied.
 - **Tauri iOS**: `cargo tauri ios dev` requires specifying a device name (e.g., `"iPhone 17 Pro"`), otherwise it loops waiting for device selection.
 - **Tauri Cargo.toml**: Must have `default-run = "strix"` because of 4 hook `[[bin]]` entries, and `[lib] crate-type = ["staticlib", "cdylib", "lib"]` for iOS static library linking.
-- **`beforeBuildCommand`** in `tauri.conf.json` runs from the `strix-webui/` directory (resolved from `frontendDist` parent), not from repo root or `src-tauri/`.
+- **`beforeBuildCommand`** in `tauri.conf.json` is empty — the frontend must be built separately (`cd strix-webui && npm run build`). In CI, this is handled by the release workflow before `cargo tauri build`.
+- **Android support** exists in Rust code (`target_os = "android"` conditionals for data directory) but the Android build target is not yet set up in CI or documented.
