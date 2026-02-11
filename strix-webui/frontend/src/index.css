@@ -116,5 +116,22 @@ pre, code {
   to { stroke-dashoffset: 0; }
 }
 .animated-edge {
-  animation: dash 0.5s linear infinite;
+  animation: dash 1s linear infinite;
+  will-change: stroke-dashoffset;
+}
+
+/* ── WKWebView (Tauri) performance ────────────────────────
+   Force GPU compositing on ReactFlow internals and promote
+   scrollable containers to their own layers. These hints are
+   harmless in Chrome/Safari but critical for WKWebView which
+   doesn't auto-promote layers as aggressively.               */
+.react-flow__renderer,
+.react-flow__viewport {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+.react-flow__minimap {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  contain: strict;
 }

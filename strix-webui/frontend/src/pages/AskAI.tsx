@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import clsx from "clsx";
 import {
   MessageSquare, Send, Loader2, Zap, Plus, Trash2,
-  FolderOpen, Download, Square, Menu,
+  FolderOpen, Download, Square, Menu, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import MobileDrawer from "../components/Layout/MobileDrawer";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -27,6 +27,18 @@ export default function AskAI() {
   const abortRef = useRef<AbortController | null>(null);
   const isMobile = useIsMobile();
   const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    const saved = localStorage.getItem("strix-sidebar-open");
+    return saved !== null ? saved !== "false" : true;
+  });
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen(prev => {
+      const next = !prev;
+      localStorage.setItem("strix-sidebar-open", String(next));
+      return next;
+    });
+  }, []);
 
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -485,6 +497,15 @@ export default function AskAI() {
         >
           <Plus size={16} />
         </button>
+        {!isMobile && (
+          <button
+            onClick={toggleSidebar}
+            className="text-strix-text-muted hover:text-strix-text transition-colors p-1 rounded hover:bg-strix-elevated"
+            title="Hide sessions"
+          >
+            <PanelLeftClose size={16} />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -548,8 +569,34 @@ export default function AskAI() {
           {sessionListContent}
         </MobileDrawer>
       ) : (
-        <div className="w-64 border-r border-strix-border-subtle bg-strix-card flex flex-col shrink-0">
-          {sessionListContent}
+        <div
+          className={clsx(
+            "border-r border-strix-border-subtle bg-strix-card shrink-0 overflow-hidden transition-[width] duration-200 ease-out",
+            sidebarOpen ? "w-64" : "w-10"
+          )}
+        >
+          {sidebarOpen ? (
+            <div className="w-64 min-w-[16rem] flex flex-col h-full">
+              {sessionListContent}
+            </div>
+          ) : (
+            <div className="w-10 min-w-[2.5rem] flex flex-col items-center pt-3 gap-2 h-full">
+              <button
+                onClick={toggleSidebar}
+                className="p-1.5 text-strix-text-muted hover:text-strix-text transition-colors rounded hover:bg-strix-elevated"
+                title="Show sessions"
+              >
+                <PanelLeftOpen size={16} />
+              </button>
+              <button
+                onClick={createNewSession}
+                className="p-1.5 text-strix-text-muted hover:text-strix-accent transition-colors rounded hover:bg-strix-elevated"
+                title="New Chat"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+          )}
         </div>
       )}
 

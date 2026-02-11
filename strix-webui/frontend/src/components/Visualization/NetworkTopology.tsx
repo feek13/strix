@@ -586,7 +586,7 @@ function Legend({ hiddenTypes, onToggle }: LegendProps) {
   ];
 
   return (
-    <div className="absolute top-3 right-3 bg-strix-bg/80 backdrop-blur-sm will-change-[backdrop-filter] border border-strix-border-subtle rounded-lg px-3 py-2 z-10">
+    <div className="absolute top-3 right-3 bg-strix-bg/95 border border-strix-border-subtle rounded-lg px-3 py-2 z-10">
       <div className="text-[9px] uppercase tracking-wider text-strix-text-muted mb-1.5 font-semibold">Filter</div>
       <div className="space-y-1">
         {items.map((item) => {
@@ -634,7 +634,7 @@ function StatsOverlay({ agents, tools, vulns }: StatsOverlayProps) {
   const totalFindings = vulns.length;
 
   return (
-    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-strix-bg/80 backdrop-blur-sm will-change-[backdrop-filter] border border-strix-border-subtle rounded-lg px-3 py-2 z-10">
+    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-strix-bg/95 border border-strix-border-subtle rounded-lg px-3 py-2 z-10">
       <div className="flex items-center gap-4 text-[10px]">
         <div className="flex items-center gap-1.5">
           <StrixIcon size={10} className="text-strix-accent" />

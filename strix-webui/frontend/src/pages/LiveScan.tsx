@@ -106,56 +106,112 @@ export default function LiveScan() {
     }
   }, [id, send, status]);
 
+  // ---- Shared resize handler factory ----
+  // Real-time drag: panel outer box resizes via style.width/height in rAF,
+  // but ALL heavy content wrappers (chat inner, viz inner) are frozen at
+  // their starting pixel size so text reflow / ResizeObserver / ReactFlow
+  // never fire during drag. On release the wrappers unfreeze and each
+  // component does a single reflow.
+  const vizInnerRef = useRef<HTMLDivElement>(null);
+  const chatInnerRef = useRef<HTMLDivElement>(null);
+
+  const createResizeHandler = useCallback(
+    (opts: {
+      axis: "x" | "y";
+      ref: React.RefObject<HTMLDivElement | null>;
+      min: number;
+      max: number;
+      onCommit: (size: number) => void;
+      cursor: string;
+      invert?: boolean; // true = dragging negative increases size (terminal)
+      freezeRefs?: React.RefObject<HTMLDivElement | null>[]; // content wrappers to freeze
+    }) =>
+    (e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault();
+      const isTouch = "touches" in e;
+      const prop = opts.axis === "x" ? "clientX" : "clientY";
+      const startPos = isTouch ? e.touches[0][prop] : e[prop];
+      const startSize = opts.ref.current
+        ? (opts.axis === "x" ? opts.ref.current.offsetWidth : opts.ref.current.offsetHeight)
+        : 0;
+
+      // Freeze content wrappers — children see no size change during drag
+      const frozen: HTMLDivElement[] = [];
+      for (const ref of opts.freezeRefs ?? []) {
+        const el = ref.current;
+        if (el) {
+          el.style.width  = `${el.offsetWidth}px`;
+          el.style.height = `${el.offsetHeight}px`;
+          el.style.contain = "strict";
+          el.style.pointerEvents = "none";
+          frozen.push(el);
+        }
+      }
+
+      document.body.style.cursor = opts.cursor;
+      document.body.style.userSelect = "none";
+
+      let rafId = 0;
+      let lastSize = startSize;
+
+      const onMove = (ev: MouseEvent | TouchEvent) => {
+        // Extract position eagerly (before rAF) to avoid stale event refs
+        const pos = "touches" in ev ? ev.touches[0][prop] : (ev as MouseEvent)[prop];
+        const rawDelta = pos - startPos;
+        const sizeDelta = opts.invert ? -rawDelta : rawDelta;
+        lastSize = Math.min(opts.max, Math.max(opts.min, startSize + sizeDelta));
+
+        cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          if (opts.ref.current) {
+            opts.ref.current.style[opts.axis === "x" ? "width" : "height"] = `${lastSize}px`;
+          }
+        });
+      };
+
+      const onEnd = () => {
+        cancelAnimationFrame(rafId);
+        // Unfreeze all content wrappers — single reflow per component
+        for (const el of frozen) {
+          el.style.width  = "";
+          el.style.height = "";
+          el.style.contain = "";
+          el.style.pointerEvents = "";
+        }
+        const moveEvt = isTouch ? "touchmove" : "mousemove";
+        const endEvt = isTouch ? "touchend" : "mouseup";
+        document.removeEventListener(moveEvt, onMove);
+        document.removeEventListener(endEvt, onEnd);
+        if (isTouch) document.removeEventListener("touchcancel", onEnd);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        opts.onCommit(lastSize);
+      };
+
+      const moveEvt = isTouch ? "touchmove" : "mousemove";
+      const endEvt = isTouch ? "touchend" : "mouseup";
+      document.addEventListener(moveEvt, onMove, { passive: false });
+      document.addEventListener(endEvt, onEnd);
+      if (isTouch) document.addEventListener("touchcancel", onEnd);
+    },
+    []
+  );
+
   // ---- Chat panel resize ----
   const chatRef = useRef<HTMLDivElement>(null);
   const [chatWidth, setChatWidth] = useState(288); // w-72
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = chatRef.current?.offsetWidth ?? chatWidth;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (ev: MouseEvent) => {
-      const w = Math.min(480, Math.max(180, startW + ev.clientX - startX));
-      if (chatRef.current) chatRef.current.style.width = `${w}px`;
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      if (chatRef.current) setChatWidth(chatRef.current.offsetWidth);
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [chatWidth]);
+  const handleResizeStart = useCallback(
+    createResizeHandler({ axis: "x", ref: chatRef, min: 180, max: 480, cursor: "col-resize", onCommit: setChatWidth, freezeRefs: [chatInnerRef, vizInnerRef] }),
+    [createResizeHandler]
+  );
 
   // ---- Terminal panel resize ----
   const termRef = useRef<HTMLDivElement>(null);
   const [termHeight, setTermHeight] = useState(256); // h-64
-  const handleTermResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startH = termRef.current?.offsetHeight ?? termHeight;
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-
-    const onMove = (ev: MouseEvent) => {
-      // Dragging up (negative delta) increases height
-      const h = Math.min(600, Math.max(80, startH - (ev.clientY - startY)));
-      if (termRef.current) termRef.current.style.height = `${h}px`;
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      if (termRef.current) setTermHeight(termRef.current.offsetHeight);
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [termHeight]);
+  const handleTermResizeStart = useCallback(
+    createResizeHandler({ axis: "y", ref: termRef, min: 80, max: 600, cursor: "row-resize", invert: true, onCommit: setTermHeight, freezeRefs: [vizInnerRef] }),
+    [createResizeHandler]
+  );
 
   const severityCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   for (const v of vulns) severityCounts[v.severity]++;
@@ -254,19 +310,22 @@ export default function LiveScan() {
 
       {/* Main 3-pane layout */}
       <div className="flex-1 flex min-h-0">
-        {/* Left: Chat */}
+        {/* Left: Chat — outer clips overflow, inner freezes during drag */}
         <div
           ref={chatRef}
-          className="flex flex-col shrink-0"
+          className="shrink-0 overflow-hidden"
           style={{ width: chatWidth }}
         >
-          <ChatInterface />
+          <div ref={chatInnerRef} className="flex flex-col w-full h-full">
+            <ChatInterface />
+          </div>
         </div>
 
         {/* Resize handle */}
         <div
           onMouseDown={handleResizeStart}
-          className="w-1 shrink-0 cursor-col-resize bg-strix-border-subtle hover:bg-strix-accent/40 active:bg-strix-accent transition-colors"
+          onTouchStart={handleResizeStart}
+          className="w-1 shrink-0 cursor-col-resize touch-none bg-strix-border-subtle hover:bg-strix-accent/40 active:bg-strix-accent transition-colors"
         />
 
         {/* Right: Visualization + Terminal + Detail Panel */}
@@ -301,15 +360,18 @@ export default function LiveScan() {
               </button>
             </div>
 
-            {/* Visualization area */}
-            <div className="flex-1 min-h-0">
-              {viewTab === "topology" ? <NetworkTopology onNodeSelect={handleNodeSelect} selectedNode={selectedNode} /> : <Timeline />}
+            {/* Visualization area — outer clips overflow, inner freezes during drag */}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <div ref={vizInnerRef} className="w-full h-full">
+                {viewTab === "topology" ? <NetworkTopology onNodeSelect={handleNodeSelect} selectedNode={selectedNode} /> : <Timeline />}
+              </div>
             </div>
 
             {/* Terminal resize handle */}
             <div
               onMouseDown={handleTermResizeStart}
-              className="h-1 shrink-0 cursor-row-resize bg-strix-border-subtle hover:bg-strix-accent/40 active:bg-strix-accent transition-colors"
+              onTouchStart={handleTermResizeStart}
+              className="h-1 shrink-0 cursor-row-resize touch-none bg-strix-border-subtle hover:bg-strix-accent/40 active:bg-strix-accent transition-colors"
             />
 
             {/* Terminal log */}

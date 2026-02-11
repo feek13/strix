@@ -328,7 +328,17 @@ async fn start_backend() -> anyhow::Result<BackendState> {
         AppDb::data_dir().join("strix.db")
     );
 
-    // ── 1b. Cleanup old content files ──────────────────────────
+    // ── 1b. Migrate chat sessions to stable user ID ───────────
+    // WKWebView localStorage can be cleared on app rebuild, generating
+    // a new user ID each time. Consolidate all UUID-based user IDs
+    // to "tauri-local" so sessions survive across app updates.
+    match db.migrate_chat_user_ids("tauri-local") {
+        Ok(0) => {}
+        Ok(n) => tracing::info!("[Strix] Migrated {} chat sessions to stable user ID", n),
+        Err(e) => tracing::warn!("[Strix] Chat session migration failed: {}", e),
+    }
+
+    // ── 1c. Cleanup old content files ──────────────────────────
     cleanup_old_content_files();
 
     // ── 1c. WAL checkpoint timer (every hour) ───────────────────

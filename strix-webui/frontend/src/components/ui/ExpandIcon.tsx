@@ -12,7 +12,7 @@ export function ExpandIcon({ isExpanded, size = 12, className }: ExpandIconProps
     <ChevronRight
       size={size}
       className={clsx(
-        "transition-transform duration-300 ease-spring will-change-transform",
+        "transition-transform duration-200 ease-out",
         isExpanded && "rotate-90",
         className
       )}

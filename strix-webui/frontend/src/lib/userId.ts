@@ -1,8 +1,5 @@
 export function getUserId(): string {
-  let id = localStorage.getItem("strix-user-id");
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem("strix-user-id", id);
-  }
-  return id;
+  // Use a stable ID across all clients (Tauri, browser, etc.) so chat sessions
+  // are shared. Strix is a single-user local tool — no multi-user isolation needed.
+  return "tauri-local";
 }

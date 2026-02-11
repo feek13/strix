@@ -49,10 +49,8 @@ function killProcessGroup(child: ChildProcess) {
 function saveActiveAskSessions() {
   for (const [id, proc] of activeAskProcesses) {
     try {
-      // Save claudeSessionId if this was a new session
-      if (!proc.isResume) {
-        store.updateChatSessionClaudeId(proc.webSessionId, proc.userId, proc.claudeSessionId, proc.currentMode);
-      }
+      // Save claudeSessionId + current mode to DB
+      store.updateChatSessionClaudeId(proc.webSessionId, proc.userId, proc.claudeSessionId, proc.currentMode);
       // Save accumulated assistant response if any
       if (proc.accumulatedText.trim()) {
         store.addChatMessage({
@@ -338,13 +336,9 @@ export function createRestServer(port: number = 3000): express.Application {
     }
 
     const currentMode = isExecute ? "execute" : "ask";
-    // Resume only if we have a CLI session AND it was created in the same mode
-    const modeChanged = !!(session?.claudeSessionId && session.claudeSessionMode !== currentMode);
-    const isResume = !!(session?.claudeSessionId) && !modeChanged;
-
-    if (modeChanged) {
-      console.log(`[Ask AI] Mode changed from ${session!.claudeSessionMode} to ${currentMode}, creating new CLI session`);
-    }
+    // Resume if we have a CLI session — mode switches share the same CLI session
+    // so context is preserved when toggling between ask and execute mode
+    const isResume = !!(session?.claudeSessionId);
 
     // Gather scan context (only needed for first message or mode change)
     let context = "";
@@ -656,8 +650,8 @@ export function createRestServer(port: number = 3000): express.Application {
       console.log(`[Ask AI] Process exited with code ${code}${killedByTimeout ? " (timeout)" : ""}`);
       processEnded = true;
 
-      // Save claudeSessionId + mode to DB after first message or mode change
-      if (!isResume && webSessionId && session) {
+      // Save claudeSessionId + current mode to DB
+      if (webSessionId && session) {
         store.updateChatSessionClaudeId(webSessionId, session.userId, claudeSessionId, currentMode);
       }
 

@@ -11,17 +11,12 @@ export function Collapsible({ isExpanded, children, className }: CollapsibleProp
   return (
     <div
       className={clsx(
-        "grid transition-[grid-template-rows] duration-300 ease-spring will-change-[grid-template-rows]",
+        "grid transition-[grid-template-rows] duration-200 ease-out",
         isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
         className
       )}
     >
-      <div
-        className={clsx(
-          "overflow-hidden transition-opacity duration-300 ease-spring",
-          isExpanded ? "opacity-100" : "opacity-0"
-        )}
-      >
+      <div className="overflow-hidden">
         {children}
       </div>
     </div>

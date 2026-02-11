@@ -82,9 +82,10 @@ export default function ChatInterface() {
   const typewriter = useTypewriter();
   const streamingText = typewriter.text;
 
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
 
   // Abort in-flight streaming fetch on unmount
   useEffect(() => {
@@ -109,15 +110,18 @@ export default function ChatInterface() {
     }
   }, [activeScan?.id, typewriter]);
 
-  // Auto scroll
-  const scrollRaf = useRef(0);
+  // Auto scroll — instant (no smooth animation, avoids WKWebView jank)
   useEffect(() => {
-    if (scrollRaf.current) cancelAnimationFrame(scrollRaf.current);
-    scrollRaf.current = requestAnimationFrame(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      scrollRaf.current = 0;
-    });
-  }, [messages, streamingText, streamBlocks]);
+    if (autoScroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, streamingText, streamBlocks, autoScroll]);
+
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
+  };
 
   // Auto-resize textarea
   useEffect(() => {
@@ -463,7 +467,11 @@ export default function ChatInterface() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto p-2 space-y-2"
+      >
         {messages.length === 0 && !streamingText && !asking && (
           <div className="flex flex-col items-center justify-center h-full text-strix-text-muted px-4">
             <StrixIcon size={20} className="mb-2 opacity-30" />
@@ -569,7 +577,6 @@ export default function ChatInterface() {
           </div>
         )}
 
-        <div ref={chatEndRef} />
       </div>
 
       {/* Input */}

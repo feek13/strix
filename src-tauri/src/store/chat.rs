@@ -70,6 +70,23 @@ impl AppDb {
         Ok(())
     }
 
+    /// Migrate all UUID-format user_ids to a stable identifier.
+    /// This is needed because WKWebView localStorage may be cleared on app rebuild,
+    /// causing a new UUID to be generated and previous sessions to become invisible.
+    /// Only affects sessions whose user_id looks like a UUID (8-4-4-4-12 hex).
+    pub fn migrate_chat_user_ids(&self, stable_id: &str) -> anyhow::Result<u32> {
+        let conn = self.conn.lock().unwrap();
+        // Match UUID v4 pattern: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+        let affected = conn.execute(
+            "UPDATE chat_sessions SET user_id = ?1
+             WHERE user_id != ?1
+               AND length(user_id) = 36
+               AND user_id GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'",
+            params![stable_id],
+        )?;
+        Ok(affected as u32)
+    }
+
     pub fn get_chat_session_by_id(&self, id: &str) -> anyhow::Result<Option<ChatSession>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT * FROM chat_sessions WHERE id = ?1")?;

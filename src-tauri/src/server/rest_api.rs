@@ -801,15 +801,13 @@ fn kill_process_group(_pid: u32) {}
 pub fn save_active_ask_sessions(state: &AppState) {
     let processes = state.active_ask_processes.lock().unwrap();
     for (id, proc) in processes.iter() {
-        // Save claudeSessionId if this was a new session
-        if !proc.is_resume {
-            let _ = state.db.update_chat_session_claude_id(
-                &proc.web_session_id,
-                &proc.user_id,
-                &proc.claude_session_id,
-                Some(&proc.current_mode),
-            );
-        }
+        // Save claudeSessionId + current mode to DB
+        let _ = state.db.update_chat_session_claude_id(
+            &proc.web_session_id,
+            &proc.user_id,
+            &proc.claude_session_id,
+            Some(&proc.current_mode),
+        );
         // Save accumulated assistant response
         let text = proc.accumulated_text.trim();
         if !text.is_empty() {
@@ -1171,29 +1169,12 @@ async fn ask_ai(
         .as_ref()
         .and_then(|id| state.db.get_chat_session_by_id(id).ok().flatten());
 
-    // Resume only if we have a CLI session AND it was created in the same mode
-    let mode_changed = session
-        .as_ref()
-        .map(|s| {
-            s.claude_session_id.is_some()
-                && s.claude_session_mode.as_deref() != Some(current_mode)
-        })
-        .unwrap_or(false);
+    // Resume if we have a CLI session — mode switches share the same CLI session
+    // so context is preserved when toggling between ask and execute mode
     let is_resume = session
         .as_ref()
         .map(|s| s.claude_session_id.is_some())
-        .unwrap_or(false)
-        && !mode_changed;
-
-    if mode_changed {
-        tracing::info!(
-            "[Ask AI] Mode changed from {:?} to {}, creating new CLI session",
-            session
-                .as_ref()
-                .and_then(|s| s.claude_session_mode.as_deref()),
-            current_mode
-        );
-    }
+        .unwrap_or(false);
 
     // Build context (only needed for first message or mode change)
     let context = if !is_resume {
@@ -1407,16 +1388,14 @@ async fn ask_ai(
             if was_timeout { " (timeout)" } else { "" }
         );
 
-        // Save claudeSessionId + mode to DB for new sessions
-        if !is_resume {
-            if let Some(ref wsid) = web_session_id {
-                let _ = state2.db.update_chat_session_claude_id(
-                    wsid,
-                    &user_id,
-                    &claude_session_id,
-                    Some(current_mode),
-                );
-            }
+        // Save claudeSessionId + current mode to DB
+        if let Some(ref wsid) = web_session_id {
+            let _ = state2.db.update_chat_session_claude_id(
+                wsid,
+                &user_id,
+                &claude_session_id,
+                Some(current_mode),
+            );
         }
 
         // Send timeout event to frontend
