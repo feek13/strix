@@ -110,6 +110,13 @@ jobs:
           git push origin "app-v${APP_VERSION}"
           echo "Created and pushed tag: app-v${APP_VERSION}"
 
+      - name: Trigger Release Desktop App workflow
+        if: steps.app.outputs.tag_exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run "Release Desktop App" --ref "app-v${{ steps.app.outputs.version }}"
+
       - name: Summary
         env:
           MCP_EXISTS: ${{ steps.mcp.outputs.tag_exists }}
