@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import clsx from "clsx";
 import {
   MessageSquare, Send, Loader2, Zap, Plus, Trash2,
@@ -21,10 +21,58 @@ import { StrixIcon } from "../components/ui/StrixIcon";
 import ExportPreviewModal from "../components/ExportPreviewModal";
 import ScanLaunchProgress, { type PreflightStep } from "../components/ScanLaunchProgress";
 
+interface MessageBubbleProps {
+  msg: ChatMessage;
+  index: number;
+  expandedTools: Set<string>;
+  onToggleTool: (toolId: string) => void;
+}
+
+const MessageBubble = memo(function MessageBubble({ msg, index, expandedTools, onToggleTool }: MessageBubbleProps) {
+  return (
+    <div className={clsx(msg.role === "user" ? "flex justify-end" : "")}>
+      {msg.role === "user" ? (
+        <div className={clsx(
+          "inline-block rounded-2xl px-4 py-2.5 max-w-[85%] text-sm",
+          msg.isExecute
+            ? "bg-severity-high/20 text-severity-high"
+            : "bg-strix-accent/15 text-strix-accent"
+        )}>
+          {msg.isExecute && <Zap size={12} className="inline mr-1.5 -mt-0.5" />}
+          <UserMessageContent content={msg.content} />
+        </div>
+      ) : msg.blocks ? (
+        <div className="space-y-2 max-w-[95%]">
+          {msg.blocks.map((block, bi) =>
+            block.type === "text" && block.text ? (
+              <div key={bi} className="bg-strix-elevated border border-strix-border-subtle rounded-xl px-4 py-3">
+                <ChatMarkdown content={block.text} />
+              </div>
+            ) : block.type === "tool" && block.tool ? (
+              <ToolBlockRenderer
+                key={bi}
+                tool={block.tool}
+                toolKey={`${index}-${bi}`}
+                isExpanded={expandedTools.has(`${index}-${bi}`)}
+                onToggle={() => onToggleTool(`${index}-${bi}`)}
+              />
+            ) : null
+          )}
+        </div>
+      ) : (
+        <div className="bg-strix-elevated border border-strix-border-subtle rounded-xl px-4 py-3 max-w-[95%]">
+          <ChatMarkdown content={msg.content} />
+        </div>
+      )}
+    </div>
+  );
+});
+
 export default function AskAI() {
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
   const isMobile = useIsMobile();
   const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -76,15 +124,18 @@ export default function AskAI() {
     return () => { abortRef.current?.abort(); };
   }, []);
 
-  // Auto scroll (debounced to once per frame)
-  const scrollRaf = useRef(0);
+  // Auto scroll — instant (no smooth animation, avoids WKWebView jank)
   useEffect(() => {
-    if (scrollRaf.current) cancelAnimationFrame(scrollRaf.current);
-    scrollRaf.current = requestAnimationFrame(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      scrollRaf.current = 0;
-    });
-  }, [messages, streamingText, streamBlocks]);
+    if (autoScroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, streamingText, streamBlocks, autoScroll]);
+
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
+  };
 
   // Auto-resize textarea
   useEffect(() => {
@@ -645,7 +696,7 @@ export default function AskAI() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto" ref={scrollRef} onScroll={handleScroll}>
               <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
                 {messages.length === 0 && !streamingText && !asking && (
                   <div className="text-sm text-strix-text-muted text-center py-16">
@@ -654,41 +705,13 @@ export default function AskAI() {
                 )}
 
                 {messages.map((msg, i) => (
-                  <div key={i} className={clsx(msg.role === "user" ? "flex justify-end" : "")}>
-                    {msg.role === "user" ? (
-                      <div className={clsx(
-                        "inline-block rounded-2xl px-4 py-2.5 max-w-[85%] text-sm",
-                        msg.isExecute
-                          ? "bg-severity-high/20 text-severity-high"
-                          : "bg-strix-accent/15 text-strix-accent"
-                      )}>
-                        {msg.isExecute && <Zap size={12} className="inline mr-1.5 -mt-0.5" />}
-                        <UserMessageContent content={msg.content} />
-                      </div>
-                    ) : msg.blocks ? (
-                      <div className="space-y-2 max-w-[95%]">
-                        {msg.blocks.map((block, bi) =>
-                          block.type === "text" && block.text ? (
-                            <div key={bi} className="bg-strix-elevated border border-strix-border-subtle rounded-xl px-4 py-3">
-                              <ChatMarkdown content={block.text} />
-                            </div>
-                          ) : block.type === "tool" && block.tool ? (
-                            <ToolBlockRenderer
-                              key={bi}
-                              tool={block.tool}
-                              toolKey={`${i}-${bi}`}
-                              isExpanded={expandedTools.has(`${i}-${bi}`)}
-                              onToggle={() => toggleTool(`${i}-${bi}`)}
-                            />
-                          ) : null
-                        )}
-                      </div>
-                    ) : (
-                      <div className="bg-strix-elevated border border-strix-border-subtle rounded-xl px-4 py-3 max-w-[95%]">
-                        <ChatMarkdown content={msg.content} />
-                      </div>
-                    )}
-                  </div>
+                  <MessageBubble
+                    key={msg.createdAt || i}
+                    msg={msg}
+                    index={i}
+                    expandedTools={expandedTools}
+                    onToggleTool={toggleTool}
+                  />
                 ))}
 
                 {/* Execute mode: streaming blocks */}
@@ -756,7 +779,6 @@ export default function AskAI() {
                   </div>
                 )}
 
-                <div ref={chatEndRef} />
               </div>
             </div>
 

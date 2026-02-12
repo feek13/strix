@@ -708,19 +708,47 @@ function NetworkTopologyInner({ onNodeSelect, externalSelectedNode }: NetworkTop
     borderSubtle: colors.borderSubtle,
   }), [colors.accent, colors.border, colors.borderSubtle]);
 
-  const { nodes: rawNodes, edges: layoutEdges } = useMemo(
+  // Structural fingerprint: only changes when nodes are added/removed or parent relationships change.
+  // Prevents expensive layout recalculation on status-only updates (e.g. tool running→done).
+  const structuralKey = useMemo(() => {
+    const agentIds = [...agents.values()].map(a => `${a.id}:${a.parentId ?? ""}`).sort().join(",");
+    const toolIds = [...tools.values()].map(t => `${t.id}:${t.agentId}`).sort().join(",");
+    const vulnIds = [...vulns.values()].map(v => v.id).sort().join(",");
+    return `${agentIds}|${toolIds}|${vulnIds}`;
+  }, [agents, tools, vulns]);
+
+  // Layout calculation: only re-runs when structure changes (node add/remove), not on status updates
+  const { nodes: layoutOnlyNodes, edges: layoutEdges } = useMemo(
     () => calculateLayout(agents, tools, vulns, scan, themeColors),
-    [agents, tools, vulns, scan, themeColors]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [structuralKey, scan?.id, themeColors]
   );
 
-  // Lightweight: only nodes whose selection state changed get a new reference
+  // Lightweight: merge latest data (status, duration) onto stable layout positions
+  const nodesWithData = useMemo(() =>
+    layoutOnlyNodes.map(n => {
+      if (n.type === "agent") {
+        const agent = agents.get(n.id);
+        if (agent) return { ...n, data: { ...n.data, status: agent.status, task: agent.task } };
+      } else if (n.type === "tool") {
+        const tool = tools.get(n.id);
+        if (tool) return { ...n, data: { ...n.data, status: tool.status, duration: tool.duration } };
+      } else if (n.type === "target" && scan) {
+        return { ...n, data: { ...n.data, status: scan.status } };
+      }
+      return n;
+    }),
+    [layoutOnlyNodes, agents, tools, scan]
+  );
+
+  // Apply selection state
   const layoutNodes = useMemo(() =>
-    rawNodes.map(n => {
+    nodesWithData.map(n => {
       const shouldSelect = n.id === selectedNodeId;
-      if (shouldSelect === !!n.data.selected) return n; // keep same reference
+      if (shouldSelect === !!n.data.selected) return n;
       return { ...n, data: { ...n.data, selected: shouldSelect } };
     }),
-    [rawNodes, selectedNodeId]
+    [nodesWithData, selectedNodeId]
   );
 
   // Filter nodes/edges by hidden types

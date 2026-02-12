@@ -16,7 +16,7 @@ export function useTypewriter() {
     const pos = posRef.current;
     if (pos < target.length) {
       const remaining = target.length - pos;
-      const step = remaining > 500 ? 20 : remaining > 200 ? 12 : remaining > 50 ? 6 : 3;
+      const step = remaining > 500 ? 40 : remaining > 200 ? 20 : remaining > 50 ? 8 : 3;
       const newPos = Math.min(pos + step, target.length);
       posRef.current = newPos;
       setText(target.slice(0, newPos));
