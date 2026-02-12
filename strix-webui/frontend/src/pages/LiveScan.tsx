@@ -108,12 +108,13 @@ export default function LiveScan() {
 
   // ---- Shared resize handler factory ----
   // Real-time drag: panel outer box resizes via style.width/height in rAF,
-  // but ALL heavy content wrappers (chat inner, viz inner) are frozen at
+  // but ALL heavy content wrappers (chat, viz, terminal) are frozen at
   // their starting pixel size so text reflow / ResizeObserver / ReactFlow
   // never fire during drag. On release the wrappers unfreeze and each
   // component does a single reflow.
-  const vizInnerRef = useRef<HTMLDivElement>(null);
   const chatInnerRef = useRef<HTMLDivElement>(null);
+  const vizInnerRef = useRef<HTMLDivElement>(null);
+  const termInnerRef = useRef<HTMLDivElement>(null);
 
   const createResizeHandler = useCallback(
     (opts: {
@@ -148,6 +149,10 @@ export default function LiveScan() {
         }
       }
 
+      // Full-page overlay prevents mouse capture by ReactFlow canvas / iframes
+      const overlay = document.createElement("div");
+      overlay.style.cssText = `position:fixed;inset:0;z-index:49;cursor:${opts.cursor}`;
+      document.body.appendChild(overlay);
       document.body.style.cursor = opts.cursor;
       document.body.style.userSelect = "none";
 
@@ -178,6 +183,7 @@ export default function LiveScan() {
           el.style.contain = "";
           el.style.pointerEvents = "";
         }
+        overlay.remove();
         const moveEvt = isTouch ? "touchmove" : "mousemove";
         const endEvt = isTouch ? "touchend" : "mouseup";
         document.removeEventListener(moveEvt, onMove);
@@ -201,7 +207,7 @@ export default function LiveScan() {
   const chatRef = useRef<HTMLDivElement>(null);
   const [chatWidth, setChatWidth] = useState(288); // w-72
   const handleResizeStart = useCallback(
-    createResizeHandler({ axis: "x", ref: chatRef, min: 180, max: 480, cursor: "col-resize", onCommit: setChatWidth, freezeRefs: [chatInnerRef, vizInnerRef] }),
+    createResizeHandler({ axis: "x", ref: chatRef, min: 180, max: 480, cursor: "col-resize", onCommit: setChatWidth, freezeRefs: [chatInnerRef, vizInnerRef, termInnerRef] }),
     [createResizeHandler]
   );
 
@@ -209,7 +215,7 @@ export default function LiveScan() {
   const termRef = useRef<HTMLDivElement>(null);
   const [termHeight, setTermHeight] = useState(256); // h-64
   const handleTermResizeStart = useCallback(
-    createResizeHandler({ axis: "y", ref: termRef, min: 80, max: 600, cursor: "row-resize", invert: true, onCommit: setTermHeight, freezeRefs: [vizInnerRef] }),
+    createResizeHandler({ axis: "y", ref: termRef, min: 80, max: 600, cursor: "row-resize", invert: true, onCommit: setTermHeight, freezeRefs: [vizInnerRef, termInnerRef] }),
     [createResizeHandler]
   );
 
@@ -360,7 +366,7 @@ export default function LiveScan() {
               </button>
             </div>
 
-            {/* Visualization area — outer clips overflow, inner freezes during drag */}
+            {/* Visualization area — inner freezes during drag */}
             <div className="flex-1 min-h-0 overflow-hidden">
               <div ref={vizInnerRef} className="w-full h-full">
                 {viewTab === "topology" ? <NetworkTopology onNodeSelect={handleNodeSelect} selectedNode={selectedNode} /> : <Timeline />}
@@ -374,14 +380,16 @@ export default function LiveScan() {
               className="h-1 shrink-0 cursor-row-resize touch-none bg-strix-border-subtle hover:bg-strix-accent/40 active:bg-strix-accent transition-colors"
             />
 
-            {/* Terminal log */}
+            {/* Terminal log — inner freezes during drag */}
             <div
               ref={termRef}
               onClick={dismissPanel}
-              className="relative shrink-0"
+              className="relative shrink-0 overflow-hidden"
               style={{ height: termHeight }}
             >
-              <TerminalLog />
+              <div ref={termInnerRef} className="w-full h-full">
+                <TerminalLog />
+              </div>
             </div>
           </div>
 
